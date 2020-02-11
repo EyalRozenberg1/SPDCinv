@@ -36,7 +36,7 @@ import matplotlib.pyplot as plt
 # Structure arrays
 ###########################################
 #initialize crystal and structure arrays
-d33            = 23.4e-12; # in meter/Volt.[LiNbO3]
+d33            = 23.4e-12 # in meter/Volt.[LiNbO3]
 PP_SLT         = Crystal(10e-6,10e-6,1e-6,200e-6,200e-6,5e-3,nz_MgCLN_Gayer,PP_crystal_slab,d33) # dx,dy,dz,MaxX,MaxY,MaxZ,Ref_ind,slab_function
 R              = 0.1 # distance to far-field screenin meters
 Temperature    = 50
@@ -61,6 +61,8 @@ DO_POLAR            = 1 #Flag for moving to polar coordinates
 # Run N simulations through crystal
 ##########################################
 N           = 100 #number of iterations
+# seed vacuum samples
+np.random.seed(seed=1986)
 
 #initialize
 G1          = G1_mat()
@@ -193,6 +195,7 @@ plt.xlabel(' x [mm]')
 plt.ylabel(' y [mm]')
 plt.title('Single photo-detection probability, Far field')
 plt.colorbar()
+plt.show()
 
 #########################################################################
 # Compute the reduced representation of G2 via
