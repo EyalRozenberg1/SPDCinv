@@ -51,9 +51,9 @@ import polarTransform
 # Constants
 ###########################################
 pi            = np.pi
-c             = 2.99792458e8;#the speed of light in meter/sec 
-eps0          = 8.854187817e-12; # the vacuum permittivity, in Farad/meter.
-h_bar         = 1.054571800e-34; # Units are m^2 kg / s, taken from http://physics.nist.gov/cgi-bin/cuu/Value?hbar|search_for=planck
+c             = 2.99792458e8#the speed of light in meter/sec
+eps0          = 8.854187817e-12 # the vacuum permittivity, in Farad/meter.
+h_bar         = 1.054571800e-34 # Units are m^2 kg / s, taken from http://physics.nist.gov/cgi-bin/cuu/Value?hbar|search_for=planck
 
 ###########################################
 # lambda funtions:
@@ -228,7 +228,7 @@ def propagate (A, x, y, k, dz):
     #propoagte in the fourier space    
     F = np.multiply(G, H_w)
     #inverse Fourier Transform: go back to real space
-    Eout = np.fft.ifft2(F); #[in real space]. E1 is the two-dimensional INVERSE discrete Fourier transform (DFT) of F1
+    Eout = np.fft.ifft2(F) #[in real space]. E1 is the two-dimensional INVERSE discrete Fourier transform (DFT) of F1
     return Eout    
 
 '''
@@ -346,13 +346,13 @@ def nz_MgCLN_Gayer(lam,T):
     
     a  = np.array([5.756, 0.0983, 0.2020, 189.32, 12.52, 1.32*10**(-2)])
     b  = np.array([2.860*10**(-6), 4.700*10**(-8), 6.113*10**(-8), 1.516*10**(-4)])
-    f  = (T-24.5)*(T+570.82);
+    f  = (T-24.5)*(T+570.82)
 
     n1 = a[0] 
     n2 = b[0]*f 
-    n3 = (a[1]+b[1]*f)/(lam**2-(a[2]+b[2]*f)**2);
-    n4 = (a[3]+b[3]*f)/(lam**2-(a[4])**2); 
-    n5 = -a[5]*lam**2;
+    n3 = (a[1]+b[1]*f)/(lam**2-(a[2]+b[2]*f)**2)
+    n4 = (a[3]+b[3]*f)/(lam**2-(a[4])**2)
+    n5 = -a[5]*lam**2
     
     nz = np.sqrt(n1+n2+n3+n4+n5)
     return nz
