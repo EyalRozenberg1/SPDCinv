@@ -49,6 +49,8 @@ Pump        = Beam(532e-9,PP_SLT,Temperature,100e-6,0.03)  #wavelength, crystal,
 Signal      = Beam(1064e-9,PP_SLT,Temperature)
 Idler       = Beam(SFG_idler_wavelength(Pump.lam,Signal.lam),PP_SLT,Temperature)
 
+# seed vacuum samples
+key = random.PRNGKey(1986)
 #phase mismatch
 delta_k              = Pump.k-Signal.k-Idler.k  
 PP_SLT.poling_period = 1.003*delta_k
@@ -61,8 +63,6 @@ DO_POLAR            = 1 #Flag for moving to polar coordinates
 # Run N simulations through crystal
 ##########################################
 N           = 100 #number of iterations
-# seed vacuum samples
-np.random.seed(seed=1986)
 
 #initialize
 G1          = G1_mat()
@@ -78,11 +78,10 @@ if DO_POLAR:
 #----------------------------------------
 if IS_INDISTIGUISHABLE:
     for n in range(N):
-        
         print('running number ', n+1)
         
         #initialize the vacuum and output fields:
-        Siganl_field = Field(Signal, PP_SLT)
+        Siganl_field = Field(Signal, PP_SLT, n*key)
         
         #Propagate through the crystal:
         crystal_prop_indistuigishable(Pump,Siganl_field,PP_SLT)
@@ -112,7 +111,7 @@ if IS_INDISTIGUISHABLE:
      
             G1_pol.update(E_s_out_k_pol,E_s_vac_k_pol,E_s_out_k_pol,E_s_vac_k_pol,N)
             Q_pol.update(E_s_out_k_pol,E_s_vac_k_pol,E_s_out_k_pol,E_s_vac_k_pol,N)
-            
+
     Idler = Signal
 
 #----------------------------------------   

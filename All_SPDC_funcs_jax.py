@@ -43,11 +43,16 @@ Functions:
 Please acknowledge this work if it is used for academic research   
 @author: Sivan Trajtenberg-Mills*, Aviv Karnieli, Noa Voloch-Bloch, Eli Megidish, Hagai S. Eisenberg and Ady Arie
 """
-import numpy as np
 # from numpy import kron
 import scipy.interpolate as interp
 import polarTransform
 from FFTshift import fftshift, ifftshift
+import jax, os
+from jax import numpy as np
+from jax.numpy import kron
+from jax import random, ops
+
+os.environ["CUDA_VISIBLE_DEVICES"]='6'
 
 ###########################################
 # Constants
@@ -105,12 +110,13 @@ initialize E_out and E_vac, for a given beam (class Beam) and crystal (class Cry
     kappa - coupling constant 
 '''
 class Field:
-  def __init__(self, beam, crystal):
+  def __init__(self, beam, crystal, key):
+    real_key, imag_key = random.split(key)
     Nx          = len(crystal.x)
     Ny          = len(crystal.y)
     self.E_out  = np.zeros([Nx,Ny],dtype=complex)
     vac         = np.sqrt(h_bar*beam.w/(2*eps0 * beam.n**2 * crystal.dx * crystal.dy * crystal.MaxZ))
-    self.E_vac  = vac*(np.random.normal(loc = 0, scale = 1, size = (Nx,Ny))+1j*np.random.normal(loc = 0, scale = 1, size = (Nx,Ny)))/np.sqrt(2)
+    self.E_vac  = vac*(random.normal(real_key,(Nx,Ny))+1j*random.normal(imag_key,(Nx,Ny)))/np.sqrt(2)
     self.kappa  = 2*1j*beam.w**2/(beam.k*c**2) #we leave d_33 out and add it in the propagation function.
     self.k      = beam.k
 
@@ -301,15 +307,14 @@ def crystal_prop_indistuigishable(Pump,Siganl_field,crystal):
 '''
 Calculate the Kroneker outer product of A (X) B
 '''
-def kron(A,B):
-    s1   = np.shape(A)
-    s2   = np.shape(B)
-    C    = np.zeros([s1[0], s1[1], s2[0], s2[1]],dtype=complex)
-    for i in range(s1[0]):
-        for j in range(s1[1]):
-            C[i,j,:,:] = A[i,j] * B
-
-    return C
+# def kron(A,B):
+#     s1   = np.shape(A)
+#     s2   = np.shape(B)
+#     C    = np.zeros([s1[0], s1[1], s2[0], s2[1]],dtype=complex)
+#     for i in range(s1[0]):
+#         for j in range(s1[1]):
+#             C = ops.index_update(C, ops.index[i, j, :, :], A[i, j] * B)
+#     return C
 
 '''
 TRACE_IT takes a matrix (that has more than 2 dimesnions), 
