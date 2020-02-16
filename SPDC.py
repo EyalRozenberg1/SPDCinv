@@ -1,35 +1,4 @@
-# -*- coding: utf-8 -*-
-"""
-Simulation tool for simulating Spontaneaus parametric down covnersion
-----------------------------------------------------------------------
-This file simulates a periodically poled LiNbO3, with a 532 nm pump and 1064.5 nm signal and idler
-plots the first order correlation G1, and the second order correlation G2, for N iterations
-
-Requirements:
-    - python modules: numpy, matplotlib, scipy, polarTransform
-
-Options:
-    - IS_INDISTIGUISHABLE: for a truly degenerate process, there should be only
-    one field propagated since the two are completely indistiguishable. For this case, set flag to 1.
-    This is the case shown in the paper.
-    - DO_POLAR: show the correlations in polar coordinates as well as far field x-y coordinates.
-
-Please acknowledge this work if it is used for academic research
-According to Simulating correlations of structured spontaneously down-converted photon pairs / LPR, 2020
-@authors: Sivan Trajtenberg-Mills*, Aviv Karnieli, Noa Voloch-Bloch, Eli Megidish, Hagai S. Eisenberg and Ady Arie
-
-!!!!!!!!Changes made by AK, Dec08:
-
-    1. G1 figure scaled by 1e-6, so that the units are counts/sec/mm^2 instead of counts/sec/m^2
-    2. Cartesian traceout: now with dx, dy over the farfield coordinates (dx,dy in meters, added calculation)
-    3. Polar traceout: now with r, dr over the farfield coordinates (r is estimated as ring radius in meters,dr=dx,
-    added calculation)
-    4. G2 figure scaled by 1e-6, so that the units are counts/sec/mm^2 instead of counts/sec/m^2
-Both degenerate and nondegenerate work like the matlab :).
-
-"""
-
-from All_SPDC_funcs import *
+from helpers import *
 import matplotlib.pyplot as plt
 
 ###########################################
@@ -37,8 +6,7 @@ import matplotlib.pyplot as plt
 ###########################################
 # initialize crystal and structure arrays
 d33 = 23.4e-12  # in meter/Volt.[LiNbO3]
-PP_SLT = Crystal(10e-6, 10e-6, 1e-6, 200e-6, 200e-6, 5e-3, nz_MgCLN_Gayer, PP_crystal_slab,
-                 d33)  # dx,dy,dz,MaxX,MaxY,MaxZ,Ref_ind,slab_function
+PP_SLT = Crystal(10e-6, 10e-6, 1e-6, 200e-6, 200e-6, 5e-3, nz_MgCLN_Gayer, PP_crystal_slab,d33)  # dx,dy,dz,MaxX,MaxY,MaxZ,Ref_ind,slab_function
 R = 0.1  # distance to far-field screenin meters
 Temperature = 50
 
@@ -63,7 +31,6 @@ DO_POLAR = 1  # Flag for moving to polar coordinates
 ##########################################
 N = 2  # number of iterations
 # seed vacuum samples
-np.random.seed(seed=1986)
 
 # initialize
 G1 = G1_mat()
@@ -171,8 +138,8 @@ P_ss = np.zeros(np.shape(E_s_out_k), dtype=complex)
 
 for i in range(np.shape(E_s_out_k)[0]):
     for j in range(np.shape(E_s_out_k)[1]):
-        P_ii[i, j] = G1.ii[i, j, i, j] / G1_Normalization(Idler.w)
-        P_ss[i, j] = G1.ss[i, j, i, j] / G1_Normalization(Signal.w)
+        P_ii = jax.ops.index_update(P_ii, jax.ops.index[i, j], G1.ii[i, j, i, j] / G1_Normalization(Idler.w))
+        P_ss = jax.ops.index_update(P_ss, jax.ops.index[i, j], G1.ss[i, j, i, j] / G1_Normalization(Signal.w))
 
 # Far field coordinates for distance R, in free space propagation
 FFcoordinate_axis_Idler = 1e3 * FF_position_axis(PP_SLT.dx, PP_SLT.MaxX, Idler.k / Idler.n, R)

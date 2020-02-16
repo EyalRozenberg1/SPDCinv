@@ -232,6 +232,7 @@ plt.title(r'$G^{(2)}$ (coincidences)')
 plt.xlabel(r'$x_i$ [mm]')
 plt.ylabel(r'$x_s$ [mm]')
 plt.colorbar()
+plt.show()
 
 if DO_POLAR:
 # Polar coordiantes
@@ -264,3 +265,4 @@ if DO_POLAR:
     plt.xlabel(r'$\theta$ [rad]')
     plt.ylabel(r'$\theta$ [rad]')
     plt.colorbar()
+    plt.show()
