@@ -168,8 +168,8 @@ else:
 # This is done by taking the diagonal elements of the G1_accum array: i.e.
 # requiring (kx,ky) = (kx',ky')
 ########################################################################
-P_ii = np.zeros(np.shape(E_s_out_k),dtype=complex) 
-P_ss = np.zeros(np.shape(E_s_out_k),dtype=complex) 
+P_ii = np.zeros(np.shape(E_s_out_k), dtype=complex)
+P_ss = np.zeros(np.shape(E_s_out_k), dtype=complex)
 
 for i in range(np.shape(E_s_out_k)[0]):
     for j in range(np.shape(E_s_out_k)[1]):

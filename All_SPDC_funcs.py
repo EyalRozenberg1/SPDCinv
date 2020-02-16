@@ -44,6 +44,7 @@ Please acknowledge this work if it is used for academic research
 @author: Sivan Trajtenberg-Mills*, Aviv Karnieli, Noa Voloch-Bloch, Eli Megidish, Hagai S. Eisenberg and Ady Arie
 """
 import numpy as np
+# from numpy import kron
 import scipy.interpolate as interp
 import polarTransform
 
@@ -61,7 +62,7 @@ h_bar         = 1.054571800e-34 # Units are m^2 kg / s, taken from http://physic
 I                    = lambda A,n: 2*n*eps0*c*np.abs(A)**2                            # Intensity
 E0                   = lambda P,n,W0: np.sqrt(P/(n*c*eps0*np.pi*W0**2))               #Calc amplitude
 Fourier              = lambda A: (np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A))))  #Fourier
-Power2D              = lambda A,n,dx,dy: np.sum(I(A,n))*dx*dy;
+Power2D              = lambda A,n,dx,dy: np.sum(I(A,n))*dx*dy
 SFG_idler_wavelength = lambda lambda_p,lambda_s: lambda_p * lambda_s / ( lambda_s - lambda_p ) #Compute the idler wavelength given pump and signal
 G1_Normalization     = lambda w:  h_bar * w / ( 2 * eps0 * c )
 Fourier_axis         = lambda dx,MaxX,k: np.arctan(np.pi*np.arange(-1/dx,1/dx,1/MaxX)/k) * 180/np.pi
