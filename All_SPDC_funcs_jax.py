@@ -47,6 +47,7 @@ import numpy as np
 # from numpy import kron
 import scipy.interpolate as interp
 import polarTransform
+from FFTshift import fftshift, ifftshift
 
 ###########################################
 # Constants
@@ -61,7 +62,7 @@ h_bar         = 1.054571800e-34 # Units are m^2 kg / s, taken from http://physic
 ###########################################
 I                    = lambda A,n: 2*n*eps0*c*np.abs(A)**2                            # Intensity
 E0                   = lambda P,n,W0: np.sqrt(P/(n*c*eps0*np.pi*W0**2))               #Calc amplitude
-Fourier              = lambda A: (np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A))))  #Fourier
+Fourier              = lambda A: (fftshift(np.fft.fft2(ifftshift(A))))  #Fourier
 Power2D              = lambda A,n,dx,dy: np.sum(I(A,n))*dx*dy
 SFG_idler_wavelength = lambda lambda_p,lambda_s: lambda_p * lambda_s / ( lambda_s - lambda_p ) #Compute the idler wavelength given pump and signal
 G1_Normalization     = lambda w:  h_bar * w / ( 2 * eps0 * c )
@@ -223,7 +224,7 @@ def propagate (A, x, y, k, dz):
     H_w = np.exp(-1j*dz*(np.square(KX)+np.square(KY))/(2*k))
     #(inverse fast Fourier transform shift). For matrices, ifftshift(X) swaps the 
     #first quadrant with the third and the second quadrant with the fourth.
-    H_w = np.fft.ifftshift(H_w)
+    H_w = ifftshift(H_w)
     #Fourier Transform: move to k-space 
     G = np.fft.fft2(A) #The two-dimensional discrete Fourier transform (DFT) of A.
     #propoagte in the fourier space    
