@@ -29,7 +29,7 @@ Both degenerate and nondegenerate work like the matlab :).
 
 """
 
-from All_SPDC_funcs import* 
+from All_SPDC_funcs_jax import*
 import matplotlib.pyplot as plt
 
 ###########################################
