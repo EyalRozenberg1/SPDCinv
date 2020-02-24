@@ -18,14 +18,19 @@ Please acknowledge this work if it is used for academic research
 According to Simulating correlations of structured spontaneously down-converted photon pairs / LPR, 2020
 @authors: Sivan Trajtenberg-Mills*, Aviv Karnieli, Noa Voloch-Bloch, Eli Megidish, Hagai S. Eisenberg and Ady Arie
 
-!!!!!!!!Changes made by AK, Dec08:
-    
-    1. G1 figure scaled by 1e-6, so that the units are counts/sec/mm^2 instead of counts/sec/m^2
-    2. Cartesian traceout: now with dx, dy over the farfield coordinates (dx,dy in meters, added calculation)
-    3. Polar traceout: now with r, dr over the farfield coordinates (r is estimated as ring radius in meters,dr=dx,
-    added calculation)
-    4. G2 figure scaled by 1e-6, so that the units are counts/sec/mm^2 instead of counts/sec/m^2
-Both degenerate and nondegenerate work like the matlab :).
+!!!!!!!!Changes made by AK, Feb23:
+
+    1. Kronicker product now uses the numpy function.
+    2. We use M^2 x M^2 matrices to describe all quantities: G1 is sparse and G2 is full.
+    3. We "sample" the diagonal elements of G1 (photodetection probability) by multiplying element wise
+       with an M^2 x M^2 indicator matrix (ones for relevant elements; zero otherwise) which we prepare in advance.
+    4. We can learn G1 and G2 matrices directly on GPU now - compare them with the corresponding targets
+       with similar matrix shape.
+    5. OPTIONAL: As before we can plot both G1 and G2 - we squeeze G1 and trace over two of the dimensions in G2.
+       To do this I added a Kronicker unwrapping function to bring the M^2 x M^2 matrix back to M x M x M x M. And
+       changed "trace_it" a little bit.
+    6. TODO: small modification so that the polar scheme also works (currently the polar transform uses nonsquare
+       matrices)
 
 """
 
@@ -40,7 +45,7 @@ d33            = 23.4e-12 # in meter/Volt.[LiNbO3]
 PP_SLT         = Crystal(10e-6,10e-6,1e-6,200e-6,200e-6,5e-3,nz_MgCLN_Gayer,PP_crystal_slab,d33) # dx,dy,dz,MaxX,MaxY,MaxZ,Ref_ind,slab_function
 R              = 0.1 # distance to far-field screenin meters
 Temperature    = 50
-
+M = len(PP_SLT.x)  # simulation size
 ###########################################
 # Interacting wavelengths
 ##########################################
@@ -57,7 +62,13 @@ PP_SLT.poling_period = 1.003*delta_k
 
 #flags
 IS_INDISTIGUISHABLE = 1 #Flag for being indistiguishable or not
-DO_POLAR            = 1 #Flag for moving to polar coordinates
+DO_POLAR            = 0 #Flag for moving to polar coordinates
+
+# Build Diagonal-Element indicator matrix for the Kronicker products
+Kron_diag = np.zeros((M ** 2, M ** 2))
+for i in range(M):
+    for j in range(M):
+        Kron_diag = ops.index_update(Kron_diag, ops.index[i + i * M, j + j * M], 1)
 
 ##########################################
 # Run N simulations through crystal
@@ -123,8 +134,8 @@ else:
         print('running number ', n+1)
         
         #initialize the vacuum and output fields:
-        Siganl_field = Field(Signal, PP_SLT)
-        Idler_field  = Field(Idler, PP_SLT)
+        Siganl_field = Field(Signal, PP_SLT, n*key)
+        Idler_field  = Field(Idler, PP_SLT, n*key)
         
         #Propagate through the crystal:
         crystal_prop(Pump,Siganl_field,Idler_field,PP_SLT)
@@ -167,13 +178,31 @@ else:
 # This is done by taking the diagonal elements of the G1_accum array: i.e.
 # requiring (kx,ky) = (kx',ky')
 ########################################################################
-P_ii = np.zeros(np.shape(E_s_out_k), dtype=complex)
-P_ss = np.zeros(np.shape(E_s_out_k), dtype=complex)
+# P_ii = np.zeros(np.shape(E_s_out_k), dtype=complex)
+# P_ss = np.zeros(np.shape(E_s_out_k), dtype=complex)
 
-for i in range(np.shape(E_s_out_k)[0]):
-    for j in range(np.shape(E_s_out_k)[1]):
-        P_ii[i,j] = G1.ii[i,j,i,j] / G1_Normalization(Idler.w)
-        P_ss[i,j] = G1.ss[i,j,i,j] / G1_Normalization(Signal.w)
+# for i in range(np.shape(E_s_out_k)[0]):
+#    for j in range(np.shape(E_s_out_k)[1]):
+#        P_ii[i,j] = G1.ii[i,j,i,j] / G1_Normalization(Idler.w)
+#        P_ss[i,j] = G1.ss[i,j,i,j] / G1_Normalization(Signal.w)
+
+# These are M^2 x M^2 sparse matrices containing only the diagonal elements of G1.
+# These matrices can be computed directly on the the GPU and used for the learning (comparison with target)
+G1_ii_diag = G1.ii * Kron_diag / G1_Normalization(Idler.w)
+G1_ss_diag = G1.ss * Kron_diag / G1_Normalization(Signal.w)
+
+if DO_POLAR:
+    G1_pol_ii_diag = G1_pol.ii * Kron_diag / G1_Normalization(Idler.w)
+    G1_pol_ss_diag = G1_pol.ss * Kron_diag / G1_Normalization(Signal.w)
+
+
+#########################################################################
+# Plot G1(k,k) for illustration only - need to do only once, if at all.
+########################################################################
+
+##For illustration purpose only: reduce the sparse matrices to an M x M probability density
+P_ii = np.reshape(G1_ii_diag[G1_ii_diag != 0], (M, M))
+P_ss = np.reshape(G1_ss_diag[G1_ss_diag != 0], (M, M))
 
 # Far field coordinates for distance R, in free space propagation
 FFcoordinate_axis_Idler  = 1e3*FF_position_axis(PP_SLT.dx,PP_SLT.MaxX,Idler.k/Idler.n, R)
@@ -184,7 +213,7 @@ extents_FFcoordinates_signal = [min(FFcoordinate_axis_Signal), max(FFcoordinate_
 extents_FFcoordinates_idler  = [min(FFcoordinate_axis_Idler), max(FFcoordinate_axis_Idler), min(FFcoordinate_axis_Idler), max(FFcoordinate_axis_Idler)]
 
 #calculate theoretical angle for signal
-theoretical_angle = np.arccos((Pump.k-PP_SLT.poling_period)/2/Signal.k) 
+theoretical_angle = np.arccos((Pump.k-PP_SLT.poling_period)/2/Signal.k)
 theoretical_angle = np.arcsin(Signal.n*np.sin(theoretical_angle)/1)  #Snell's law
 
 plt.figure()
@@ -197,71 +226,93 @@ plt.colorbar()
 plt.show()
 
 #########################################################################
+# Compute the exact G2 via
+# G2 (k, k',k',k) = P1(k) * P1(k') + |G1(k,k')|^2 + |Q(k,k')|^2
+# We don't trace anything. The resulting matrix is M^2 x M^2 and we can compare
+# it to the target function.
+#########################################################################
+
+# G2 = np.real(G1.ii * G1.ss + Q.si_dagger * Q.si + G1.si_dagger * G1.si)
+
+# if DO_POLAR:
+#     # Polar coordiantes
+#     G2_pol = np.real(G1_pol.ii * G1_pol.ss + Q_pol.si_dagger * Q_pol.si + G1_pol.si_dagger * G1_pol.si)
+
+#########################################################################
+# For illustration only:
 # Compute the reduced representation of G2 via
 # G2 (theta, theta') = P1(theta) * P1(theta') + |G1(theta,theta')|^2 + |Q(theta,theta')|^2
-# In our case of degenerate SPDC, we trace over the radial coordinates (r , r') 
-# for |G1|^2 and |Q|^2, and trace over r for P1, such that the reduced P1*P1, |G1|^2 and |Q|^2 now 
+# In our case of degenerate SPDC, we trace over the radial coordinates (r , r')
+# for |G1|^2 and |Q|^2, and trace over r for P1, such that the reduced P1*P1, |G1|^2 and |Q|^2 now
 # depend only on (theta, theta') of the photon pair.
 #########################################################################
 
-# Fourier coordiantes
-# AK, Dec08: Add far-field resolution, in meters
-dx_farfield_idler = 1e-3*(FFcoordinate_axis_Idler[1]-FFcoordinate_axis_Idler[0])
-dx_farfield_signal = 1e-3*(FFcoordinate_axis_Signal[1]-FFcoordinate_axis_Signal[0])
+# G2_unwrapped = unwrap_kron(G2, M)
+#
+# # Fourier coordiantes
+# # AK, Dec08: Add far-field resolution, in meters
+# dx_farfield_idler = 1e-3*(FFcoordinate_axis_Idler[1]-FFcoordinate_axis_Idler[0])
+# dx_farfield_signal = 1e-3*(FFcoordinate_axis_Signal[1]-FFcoordinate_axis_Signal[0])
+#
+# #  Square and reduce P
+# # Pis_abs_sq_reduced = trace_it(G1.ii,G1.ss,1,3)*dx_farfield_idler*dx_farfield_signal
+#
+# # Square and reduce G1
+# # G1_is_abs_sq_reduced = trace_it(G1.si_dagger,G1.si,1,3)*dx_farfield_idler*dx_farfield_signal
+#
+# # Square and reduce Q
+# # Qis_abs_sq_reduced = trace_it(Q.si_dagger,Q.si,1,3)*dx_farfield_idler*dx_farfield_signal
+#
+# # add coincidence window
+# tau =1e-9 #nanosec
+#
+# # Compute and plot reduced G2
+# G2_reduced = trace_it(G2_unwrapped, 1, 3) * dx_farfield_idler * dx_farfield_signal
+# G2_reduced = G2_reduced * tau / (G1_Normalization(Idler.w) * G1_Normalization(Signal.w))
+#
+# #plot
+# plt.figure()
+# plt.imshow(1e-6*G2_reduced,extent   = extents_FFcoordinates_signal) #AK, Dec08: G2 in counts/sec/mm^2
+# plt.title(r'$G^{(2)}$ (coincidences)')
+# plt.xlabel(r'$x_i$ [mm]')
+# plt.ylabel(r'$x_s$ [mm]')
+# plt.colorbar()
+# plt.show()
+#
+# if DO_POLAR:
+#     # Polar coordiantes
+#     #AK, DEC08: Need to trace over the r coordinate
+#     #First find dr in the far-field, in meters
+#     dr = 1e-3*(FFcoordinate_axis_Idler[1]-FFcoordinate_axis_Idler[0])
+#     #Calculate theoretical ring radius for approximate Jacobian rdr
+#     r_th = R * np.tan(theoretical_angle)
+#
+#     #  Square and reduce P
+#     #    Pis_abs_sq_reduced = (r_th*dr)**2*trace_it(G1_pol.ii,G1_pol.ss,1,3)
+#
+#     # Square and reduce G1
+#     #    G1_is_abs_sq_reduced = (r_th*dr)**2*trace_it(G1_pol.si_dagger,G1_pol.si,1,3)
+#
+#     # Square and reduce Q
+#     #    Qis_abs_sq_reduced = (r_th*dr)**2*trace_it(Q_pol.si_dagger,Q_pol.si,1,3)
+#
+#     # add coincidence window
+#     tau =1e-9  #nanosec
+#
+#     # Compute and plot reduced G2
+#     G2_pol_unwrapped = unwrap_kron(G2_pol, M)
+#     G2_pol_reduced = trace_it(G2_pol_unwrapped, 1, 3) * (r_th * dr) ** 2
+#     G2_pol_reduced = G2_pol_reduced * tau / (G1_Normalization(Idler.w) * G1_Normalization(Signal.w))
+#
+#     #plot
+#     extents = np.array([th[0], th[1], th[0], th[1]])
+#     plt.figure()
+#     plt.imshow(G2_pol_reduced,extent =extents)
+#     plt.title(r'$G^{(2)}$ (coincidences)')
+#     plt.xlabel(r'$\theta$ [rad]')
+#     plt.ylabel(r'$\theta$ [rad]')
+#     plt.colorbar()
+#     plt.show()
 
-#  Square and reduce P
-Pis_abs_sq_reduced = trace_it(G1.ii,G1.ss,1,3)*dx_farfield_idler*dx_farfield_signal
-
-# Square and reduce G1
-G1_is_abs_sq_reduced = trace_it(G1.si_dagger,G1.si,1,3)*dx_farfield_idler*dx_farfield_signal 
-
-# Square and reduce Q
-Qis_abs_sq_reduced = trace_it(Q.si_dagger,Q.si,1,3)*dx_farfield_idler*dx_farfield_signal
-
-# add coincidence window
-tau =1e-9 #nanosec
-
-# Compute and plot reduced G2
-G2_reduced = np.real(Pis_abs_sq_reduced+Qis_abs_sq_reduced+G1_is_abs_sq_reduced)*tau/( G1_Normalization(Idler.w) * G1_Normalization(Signal.w) )
-
-#plot
-plt.figure()
-plt.imshow(1e-6*G2_reduced,extent = extents_FFcoordinates_signal) #AK, Dec08: G2 in counts/sec/mm^2
-plt.title(r'$G^{(2)}$ (coincidences)')
-plt.xlabel(r'$x_i$ [mm]')
-plt.ylabel(r'$x_s$ [mm]')
-plt.colorbar()
-plt.show()
-
-if DO_POLAR:
-# Polar coordiantes
-    #AK, DEC08: Need to trace over the r coordinate
-    #First find dr in the far-field, in meters
-    dr = 1e-3*(FFcoordinate_axis_Idler[1]-FFcoordinate_axis_Idler[0])
-    #Calculate theoretical ring radius for approximate Jacobian rdr 
-    r_th = R * np.tan(theoretical_angle) 
-    
-    #  Square and reduce P
-    Pis_abs_sq_reduced = (r_th*dr)**2*trace_it(G1_pol.ii,G1_pol.ss,1,3)
-    
-    # Square and reduce G1
-    G1_is_abs_sq_reduced = (r_th*dr)**2*trace_it(G1_pol.si_dagger,G1_pol.si,1,3) 
-    
-    # Square and reduce Q
-    Qis_abs_sq_reduced = (r_th*dr)**2*trace_it(Q_pol.si_dagger,Q_pol.si,1,3)
-    
-    # add coincidence window
-    tau =1e-9 #nanosec
-    
-    # Compute and plot reduced G2
-    G2_reduced = np.real(Pis_abs_sq_reduced+Qis_abs_sq_reduced+G1_is_abs_sq_reduced)*tau/( G1_Normalization(Idler.w) * G1_Normalization(Signal.w) )
-    
-    #plot
-    extents    = np.array([th[0], th[1], th[0], th[1]])
-    plt.figure()
-    plt.imshow(G2_reduced,extent =extents) 
-    plt.title(r'$G^{(2)}$ (coincidences)')
-    plt.xlabel(r'$\theta$ [rad]')
-    plt.ylabel(r'$\theta$ [rad]')
-    plt.colorbar()
-    plt.show()
+print('Done')
+exit()

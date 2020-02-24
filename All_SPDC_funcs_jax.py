@@ -39,7 +39,21 @@ Functions:
     - trace_it - traces over dimensions dim1 and dim2 of a (0<dim<3) for the product of two matrices
     - car2pol - converts a matrix from cartesian to polar coordinates
     - nz_MgCLN_Gayer - temperature and wavelength dependant refractive index of SLT 
-    
+
+!!!!!!!!Changes made by AK, Feb23:
+
+    1. Kronicker product now uses the numpy function.
+    2. We use M^2 x M^2 matrices to describe all quantities: G1 is sparse and G2 is full.
+    3. We "sample" the diagonal elements of G1 (photodetection probability) by multiplying element wise
+       with an M^2 x M^2 indicator matrix (ones for relevant elements; zero otherwise) which we prepare in advance.
+    4. We can learn G1 and G2 matrices directly on GPU now - compare them with the corresponding targets
+       with similar matrix shape.
+    5. OPTIONAL: As before we can plot both G1 and G2 - we squeeze G1 and trace over two of the dimensions in G2.
+       To do this I added a Kronicker unwrapping function to bring the M^2 x M^2 matrix back to M x M x M x M. And
+       changed "trace_it" a little bit.
+    6. TODO: small modification so that the polar scheme also works (currently the polar transform uses nonsquare
+       matrices)
+
 Please acknowledge this work if it is used for academic research   
 @author: Sivan Trajtenberg-Mills*, Aviv Karnieli, Noa Voloch-Bloch, Eli Megidish, Hagai S. Eisenberg and Ady Arie
 """
@@ -305,25 +319,30 @@ def crystal_prop_indistuigishable(Pump,Siganl_field,crystal):
 
 
 '''
-Calculate the Kroneker outer product of A (X) B
+unwrap_kron takes a Kronicker product of size M^2 x M^2 and turns is into an
+M x M x M x M array. It is used only for illustration and not during the learning
 '''
-# def kron(A,B):
-#     s1   = np.shape(A)
-#     s2   = np.shape(B)
-#     C    = np.zeros([s1[0], s1[1], s2[0], s2[1]],dtype=complex)
-#     for i in range(s1[0]):
-#         for j in range(s1[1]):
-#             C = ops.index_update(C, ops.index[i, j, :, :], A[i, j] * B)
-#     return C
+
+
+def unwrap_kron(C, M):
+    G = np.zeros((M, M, M, M))
+    for i in range(M):
+        for j in range(M):
+            for k in range(M):
+                for l in range(M):
+                    G = ops.index_update(G, ops.index[i, j, k, l], C[k + M * i, l + M * j])
+    return G
 
 '''
-TRACE_IT takes a matrix (that has more than 2 dimesnions), 
-squares it (A)*B and traces over 2 dimensions
+TRACE_IT takes an M x M x M x M array representing a Kronecker product, 
+and traces over 2 of its dimensions
 '''
-def trace_it(A, B, dim1, dim2):
-   C    = np.sum(((A)*B),axis = dim1)    #square and trace over dimesnion dim1
-   C    = np.sum(C,axis  = dim2-1)       #trace over over dimesnion dim2
-   return C
+
+
+def trace_it(G, dim1, dim2):
+    C    = np.sum(G, axis=dim1)  # trace over dimesnion dim1
+    C    = np.sum(C, axis=dim2 - 1)  # trace over dimesnion dim2
+    return C
 
 '''
 For a matrix A, convert it to polar coordinates 
