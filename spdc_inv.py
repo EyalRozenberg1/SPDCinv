@@ -22,17 +22,17 @@ show_res      = True  # display and show results
 # saving results
 save_res      = False
 res_path      = 'results/'          # path to folder. should be given as a user-parameter
-res_name      = 'P_ss_dz5e-5'
+res_name      = 'P_ss'
 
 # saving as target
 save_tgt      = False
-Gt_path       = 'targets/'          # path o folder. should be given as a user-parameter
-G1ss_t_name   = 'G1_ss_tdz5e-5'
+Pt_path       = 'targets/'          # path o folder. should be given as a user-parameter
+Pss_t_name   = 'P_ss'
 
-# load target G1, G2
+# load target P, G2
 if learn_mode:
-    G1_ss_t     = np.load(Gt_path+G1ss_t_name+'.npy')  # target signal probability-density
-    G2t         = None
+    P_ss_t     = np.load(Pt_path+Pss_t_name+'.npy')  # target signal probability-density
+    G2t        = None
 
 
 n_coeff     = 2  # coefficients of beam-basis functions
@@ -51,7 +51,7 @@ assert N % batch_size == 0, "num_batches should be 'signed integer'"
 ###########################################
 # initialize crystal and structure arrays
 d33         = 23.4e-12  # in meter/Volt.[LiNbO3]
-PP_SLT      = Crystal(10e-6, 10e-6, 5e-5, 200e-6, 200e-6, 5e-3, nz_MgCLN_Gayer, PP_crystal_slab, d33)
+PP_SLT      = Crystal(10e-6, 10e-6, 1e-5, 200e-6, 200e-6, 5e-3, nz_MgCLN_Gayer, PP_crystal_slab, d33)
 R           = 0.1  # distance to far-field screenin meters
 Temperature = 50
 M           = len(PP_SLT.x)  # simulation size
@@ -63,7 +63,7 @@ M           = len(PP_SLT.x)  # simulation size
 
 # * define two pump's function (for now n_coeff must be 2) to define the pump *
 # * this should be later changed to the definition given by Sivan *
-Pump    = Beam(532e-9, PP_SLT, Temperature, 100e-6, 3e3)  # wavelength, crystal, tmperature,waist,power
+Pump    = Beam(532e-9, PP_SLT, Temperature, 100e-6, 3e-2)  # wavelength, crystal, tmperature,waist,power
 Signal  = Beam(1064e-9, PP_SLT, Temperature)
 Idler   = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature)
 # phase mismatch
@@ -89,9 +89,12 @@ vac_rnd = random.normal(key, (N, 2, 2, Nx, Ny))
 # N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
 
 # Build Diagonal-Element indicator matrix for the Kronicker products
-Kron_diag = np.zeros((M ** 2, M ** 2))
-Kron_diag = ops.index_update(Kron_diag, ops.index[::M+1,::M+1], 1)
-# G1_ss[::M+1,::M+1] / G1_Normalization(Signal.w)
+# Kron_diag = np.zeros((M ** 2, M ** 2))
+# Kron_diag = ops.index_update(Kron_diag, ops.index[::M+1,::M+1], 1)
+
+# normalization factor
+g1_normalization = G1_Normalization(Signal.w)
+
 params = random_params(n_coeff, random.PRNGKey(0), param_scale)
 print("--- the parameters initiated are: {} ---".format(params))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
@@ -110,30 +113,28 @@ def predict(params, vac_): # vac_ = vac_s, vac_i
     # FFT:
     E_s_out_k   = FarFieldNorm_signal * Fourier(Siganl_field.E_out)
     G1_ss       = kron(np.conj(E_s_out_k), E_s_out_k) / N
-    return G1_ss
+    P_ss        = G1_ss[::M + 1, ::M + 1] / g1_normalization
+    return P_ss
 
 # Make a batched version of the `predict` function
 batched_predict = vmap(predict, in_axes=(None, 0))
-# batched_preds   = batched_predict(params, vac_rnd)
-# G1_ss           = batched_preds.sum(0)
-# P_ss            = np.reshape(G1_ss[Kron_diag != 0], (M, M)) / G1_Normalization(Signal.w)
 
-
-def loss(params, vac_, G1_ss_t, G2t): # vac_ = vac_s, vac_i, G2t = G1/2 target corrletion matrices
+def loss(params, vac_, P_ss_t, G2t): # vac_ = vac_s, vac_i, G2t = P and G2 target corrletion matrices
     batched_preds   = batched_predict(params, vac_)
-    G1_ss            = batched_preds.sum(0)
+    P_ss = batched_preds.sum(0).real
+    P_ss = P_ss / la.norm(P_ss)
 
     if loss_type is 'l2':
-        return la.norm(G1_ss - G1_ss_t)
+        return la.norm(P_ss - P_ss_t)
     if loss_type is 'kl':
         # KL Divergence #
         """ Epsilon is used here to avoid conditional code for
         checking that neither P nor Q is equal to 0. """
-        epsilon = 1e-10
+        epsilon = 0
 
         # You may want to instead make copies to avoid changing the np arrays.
-        P = G1_ss + epsilon
-        Q = G1_ss_t + epsilon
+        Q = P_ss + epsilon
+        P = P_ss_t + epsilon
 
         return np.abs(np.sum(P * np.log(P / Q)))
     if loss_type is 'wasserstein':
@@ -158,7 +159,7 @@ if learn_mode:
       start_time_epoch = time.time()
       batch_set = get_train_batches(vac_rnd, key_batch_epoch[epoch])
       for x in batch_set:
-          params = update(params, x, G1_ss_t)
+          params = update(params, x, P_ss_t)
           params = ops.index_update(params, ops.index[:], param_scale * nn.softmax(np.array(params[:])))  # normalize to param_scale (positive numbers)
       epoch_time = time.time() - start_time_epoch
       print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
@@ -171,18 +172,16 @@ if learn_mode:
 
 # show last epoch result
 batched_preds   = batched_predict(params, vac_rnd)
-G1_ss           = batched_preds.sum(0)
+P_ss            = batched_preds.sum(0).real
+P_ss            = P_ss/la.norm(P_ss)
 
 if save_res:
-    P_ss = np.reshape(G1_ss[Kron_diag != 0], (M, M)) / G1_Normalization(Signal.w)
     np.save(res_path+res_name, P_ss)
 
 if save_tgt:
-    np.save(Gt_path+G1ss_t_name, G1_ss)
+    np.save(Pt_path+Pss_t_name, P_ss)
 
 if show_res:
-    P_ss = np.reshape(G1_ss[Kron_diag != 0], (M, M)) / G1_Normalization(Signal.w)
-
     FF_position_axis = lambda dx, MaxX, k, R: np.arange(-1 / dx, 1 / dx, 1 / MaxX) * (np.pi * R / k)
     FFcoordinate_axis_Idler = 1e3 * FF_position_axis(PP_SLT.dx, PP_SLT.MaxX, Idler.k / Idler.n, R)
     FFcoordinate_axis_Signal = 1e3 * FF_position_axis(PP_SLT.dx, PP_SLT.MaxX, Signal.k / Signal.n, R)
