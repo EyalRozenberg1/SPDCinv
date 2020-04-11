@@ -51,9 +51,13 @@ M = len(PP_SLT.x)  # simulation size
 # Interacting wavelengths
 ##########################################
 # Initiialize the interacting beams
-Pump = Beam(532e-9, PP_SLT, Temperature, 100e-6, 0.03)  # wavelength, crystal, tmperature,waist,power
-Signal = Beam(1064e-9, PP_SLT, Temperature)
-Idler = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature)
+max_mode  = 4
+Pump      = Beam(532e-9, PP_SLT, Temperature, 100e-6, 0.03, max_mode)  # wavelength, crystal, tmperature,waist,power, maxmode
+Signal    = Beam(1064e-9, PP_SLT, Temperature)
+Idler     = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature)
+
+pump_parameters = [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+Pump.create_profile(pump_parameters)
 
 # phase mismatch
 delta_k = Pump.k - Signal.k - Idler.k
@@ -72,7 +76,7 @@ for i in range(M):
 ##########################################
 # Run N simulations through crystal
 ##########################################
-N = 100  # number of iterations
+N = 1  # number of iterations
 # seed vacuum samples
 np.random.seed(seed=1986)
 
