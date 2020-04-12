@@ -64,6 +64,7 @@ M           = len(PP_SLT.x)  # simulation size
 # * define two pump's function (for now n_coeff must be 2) to define the pump *
 # * this should be later changed to the definition given by Sivan *
 Pump    = Beam(532e-9, PP_SLT, Temperature, 100e-6, 3e-2)  # wavelength, crystal, tmperature,waist,power
+Pump0   = Beam(300e-9, PP_SLT, Temperature, 100e-6, 3e-2)  # wavelength, crystal, tmperature,waist,power
 Signal  = Beam(1064e-9, PP_SLT, Temperature)
 Idler   = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature)
 # phase mismatch
@@ -106,7 +107,7 @@ def predict(params, vac_): # vac_ = vac_s, vac_i
     Siganl_field    = Field(Signal, PP_SLT, vac_[0])
     Idler_field     = Field(Idler, PP_SLT, vac_[1])
     # Propagate through the crystal:
-    crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT, params)
+    crystal_prop([Pump,Pump0], Siganl_field, Idler_field, PP_SLT, params)
     # Coumpute k-space far field using FFT:
     # normalization factors
     FarFieldNorm_signal = (2 * PP_SLT.MaxX) ** 2 / (np.size(Siganl_field.E_out) * Signal.lam * R)
@@ -158,9 +159,15 @@ if learn_mode:
     for epoch in range(num_epochs):
       start_time_epoch = time.time()
       batch_set = get_train_batches(vac_rnd, key_batch_epoch[epoch])
+
+      # batched_preds_ep = batched_predict(params, vac_rnd)
+      # P_ss_ep = batched_preds_ep.sum(0).real
+      # P_ss_ep = P_ss_ep / la.norm(P_ss_ep)
+      # print(f'l2 loss {la.norm(P_ss_ep - P_ss_t)}')
+
       for x in batch_set:
           params = update(params, x, P_ss_t)
-          params = ops.index_update(params, ops.index[:], param_scale * nn.softmax(np.array(params[:])))  # normalize to param_scale (positive numbers)
+          # params = ops.index_update(params, ops.index[:], param_scale * nn.softmax(np.array(params[:])))  # normalize to param_scale (positive numbers)
       epoch_time = time.time() - start_time_epoch
       print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
       print("--- the parameters optimized are: {} ---".format(params))
@@ -197,7 +204,7 @@ if show_res:
     theoretical_angle = np.arcsin(Signal.n * np.sin(theoretical_angle) / 1)  # Snell's law
 
     plt.figure()
-    plt.imshow(np.real(P_ss * 1e-6), extent=extents_FFcoordinates_signal)  # AK, Dec08: Units of counts/mm^2*sec
+    plt.imshow(P_ss * 1e-6, extent=extents_FFcoordinates_signal)  # AK, Dec08: Units of counts/mm^2*sec
     plt.plot(1e3 * R * np.tan(theoretical_angle), 0, 'xw')
     plt.xlabel(' x [mm]')
     plt.ylabel(' y [mm]')

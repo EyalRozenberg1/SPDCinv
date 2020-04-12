@@ -144,7 +144,7 @@ propagate through crystal using split step Fourier for 4 fields: e_out and E_vac
 def crystal_prop(Pump, Siganl_field, Idler_field, crystal, params):
     for z in crystal.z:
         # pump beam:
-        E_pump = params[0]*Gaussian_beam_calc(Pump, crystal, z)  # E_pump = params[0]*Gaussian_beam_calc(Pump[0], crystal, z) + params[1]*Gaussian_beam_calc(Pump[1], crystal, z)
+        E_pump = params[0]*Gaussian_beam_calc(Pump[0], crystal, z) + params[1]*Gaussian_beam_calc(Pump[1], crystal, z)  # E_pump = params[0]*Gaussian_beam_calc(Pump[0], crystal, z) + params[1]*Gaussian_beam_calc(Pump[1], crystal, z)
         # crystal slab:
         PP = crystal.slab(crystal.poling_period, z)
 
