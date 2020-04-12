@@ -65,7 +65,8 @@ PP_SLT.poling_period = 1.003 * delta_k
 
 # flags
 IS_INDISTIGUISHABLE = 0  # Flag for being indistiguishable or not
-DO_POLAR = 0  # Flag for moving to polar coordinates
+IS_GAUSSIAN         = 0  # Flag for being Gaussian or not. This will change the propagation
+DO_POLAR            = 0  # Flag for moving to polar coordinates
 
 # Build Diagonal-Element indicator matrix for the Kronicker products
 Kron_diag = np.zeros((M ** 2, M ** 2))
@@ -100,7 +101,7 @@ if IS_INDISTIGUISHABLE:
         Siganl_field = Field(Signal, PP_SLT)
 
         # Propagate through the crystal:
-        crystal_prop_indistuigishable(Pump, Siganl_field, PP_SLT)
+        crystal_prop_indistuigishable(Pump, Siganl_field, PP_SLT,IS_GAUSSIAN)
 
         # Coumpute k-space far field using FFT:
         # normalization factors
@@ -143,7 +144,7 @@ else:
         Idler_field = Field(Idler, PP_SLT)
 
         # Propagate through the crystal:
-        crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT)
+        crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT,IS_GAUSSIAN)
 
         # Coumpute k-space far field using FFT:
         # normalization factors

@@ -288,9 +288,16 @@ propagate through crystal using split step Fourier for 4 fields: e_out and E_vac
 
 def crystal_prop(Pump, Siganl_field, Idler_field, crystal, gaussian = 1):
     for z in crystal.z:
+        
+        
+        # propagate
+        x                 =  crystal.x
+        y                 =  crystal.y
+        dz                = crystal.dz
+            
         # pump beam:
         if not gaussian:
-            E_pump = propagate(Pump.E, crystal, z)
+            E_pump = propagate(Pump.E, x ,y, Pump.k, z) * np.exp(1j * Pump.k * z)
         else:
             E_pump = Gaussian_beam_calc(Pump, crystal, z)
         # crystal slab:
@@ -311,11 +318,6 @@ def crystal_prop(Pump, Siganl_field, Idler_field, crystal, gaussian = 1):
         Idler_field.E_out = Idler_field.E_out + dEi_out_dz * crystal.dz
         Idler_field.E_vac = Idler_field.E_vac + dEi_vac_dz * crystal.dz
 
-        # propagate
-        x                 =  crystal.x
-        y                 =  crystal.y
-        dz                = crystal.dz
-        
         Siganl_field.E_out = propagate(Siganl_field.E_out, x ,y, Siganl_field.k, dz) * np.exp(1j * Siganl_field.k * dz)
         Siganl_field.E_vac = propagate(Siganl_field.E_vac, x ,y, Siganl_field.k, dz) * np.exp(1j * Siganl_field.k * dz)
         Idler_field.E_out  = propagate(Idler_field.E_out, x ,y, Idler_field.k, dz) * np.exp(1j * Idler_field.k * dz)
