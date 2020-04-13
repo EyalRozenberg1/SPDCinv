@@ -22,12 +22,12 @@ show_res      = True  # display and show results
 # saving results
 save_res      = False
 res_path      = 'results/'          # path to folder. should be given as a user-parameter
-res_name      = 'P_ss'
+res_name      = 'P_ss_HG00HG33_to_HG00_ep250_batch50_N100_step0.001'
 
 # saving as target
 save_tgt      = False
 Pt_path       = 'targets/'          # path o folder. should be given as a user-parameter
-Pss_t_name   = 'P_ss'
+Pss_t_name   = 'P_ss_HG00'
 
 # load target P, G2
 if learn_mode:
@@ -35,11 +35,11 @@ if learn_mode:
     G2t        = None
 
 
-n_coeff     = 2  # coefficients of beam-basis functions
+n_coeff     = 16  # coefficients of beam-basis functions
 param_scale = 1
-step_size   = 0.0001
-num_epochs  = 50
-batch_size  = 50   # 20, 20, 50, 100
+step_size   = 0.001
+num_epochs  = 250
+batch_size  = 50  # 20, 20, 50, 100
 N           = 100  # 100, 500, 1000  number of iterations / dataset size
 
 num_batches = N/batch_size
@@ -63,8 +63,8 @@ M           = len(PP_SLT.x)  # simulation size
 
 # * define two pump's function (for now n_coeff must be 2) to define the pump *
 # * this should be later changed to the definition given by Sivan *
-Pump    = Beam(532e-9, PP_SLT, Temperature, 100e-6, 3e-2)  # wavelength, crystal, tmperature,waist,power
-Pump0   = Beam(300e-9, PP_SLT, Temperature, 100e-6, 3e-2)  # wavelength, crystal, tmperature,waist,power
+max_mode = 4
+Pump    = Beam(532e-9, PP_SLT, Temperature, 100e-6, 0.03,max_mode)  # wavelength, crystal, tmperature,waist,power, maxmode
 Signal  = Beam(1064e-9, PP_SLT, Temperature)
 Idler   = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature)
 # phase mismatch
@@ -96,7 +96,8 @@ vac_rnd = random.normal(key, (N, 2, 2, Nx, Ny))
 # normalization factor
 g1_normalization = G1_Normalization(Signal.w)
 
-params = random_params(n_coeff, random.PRNGKey(0), param_scale)
+params = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], dtype='float32')  # random_params(n_coeff, random.PRNGKey(0), param_scale)
+
 print("--- the parameters initiated are: {} ---".format(params))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 start_time = time.time()
@@ -106,8 +107,10 @@ def predict(params, vac_): # vac_ = vac_s, vac_i
     # initialize the vacuum and output fields:
     Siganl_field    = Field(Signal, PP_SLT, vac_[0])
     Idler_field     = Field(Idler, PP_SLT, vac_[1])
+    # current pump structure
+    Pump.create_profile(params)
     # Propagate through the crystal:
-    crystal_prop([Pump,Pump0], Siganl_field, Idler_field, PP_SLT, params)
+    crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT)
     # Coumpute k-space far field using FFT:
     # normalization factors
     FarFieldNorm_signal = (2 * PP_SLT.MaxX) ** 2 / (np.size(Siganl_field.E_out) * Signal.lam * R)
