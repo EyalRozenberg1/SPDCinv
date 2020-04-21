@@ -96,7 +96,11 @@ if learn_mode:
 # normalization factor
 g1_normalization = G1_Normalization(Signal.w)
 
-params = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], dtype='float32')  # random_params(n_coeff, random.PRNGKey(0), param_scale)
+# params_coef = random.normal(random.PRNGKey(0), (n_coeff, 2))
+# params      = np.array(params_coef[:, 0] + 1j*params_coef[:, 1])/np.sqrt(2)
+
+params = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])  # random_params(n_coeff, random.PRNGKey(0), param_scale)
+params = np.divide(params, la.norm(params))
 
 print("--- the parameters initiated are: {} ---".format(params))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
@@ -149,8 +153,9 @@ def loss(params, vac_, P_ss_t, G2t): # vac_ = vac_s, vac_i, G2t = P and G2 targe
 @jit
 def update(params, x, y1, y2=None):
   grads = grad(loss)(params, x, y1, y2)
-  return [(w - step_size * dw)
+  params = [(w - step_size * dw)
           for (w), (dw) in zip(params, grads)]
+  return np.divide(np.array(params[:]), la.norm(params))
 
 
 def get_train_batches(vac_, key_):
