@@ -37,10 +37,10 @@ if learn_mode:
 
 n_coeff     = 16  # coefficients of beam-basis functions
 param_scale = 1
-step_size   = 0.001
-num_epochs  = 250
-batch_size  = 50  # 20, 20, 50, 100
-N           = 100  # 100, 500, 1000  number of iterations / dataset size
+step_size   = 0.01
+num_epochs  = 500
+batch_size  = 100  # 20, 20, 50, 100
+N           = 10000  # 100, 500, 1000  number of iterations / dataset size
 
 num_batches = N/batch_size
 assert N % batch_size == 0, "num_batches should be 'signed integer'"
