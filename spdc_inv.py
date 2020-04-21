@@ -26,7 +26,7 @@ res_name      = 'P_ss_HG00HG33_to_HG00_ep250_batch50_N100_step0.001'
 
 # saving as target
 save_tgt      = False
-Pt_path       = 'targets/'          # path o folder. should be given as a user-parameter
+Pt_path       = 'targets/'          # path to folder. should be given as a user-parameter
 Pss_t_name   = 'P_ss_HG00'
 
 # load target P, G2
@@ -52,7 +52,7 @@ assert N % batch_size == 0, "num_batches should be 'signed integer'"
 # initialize crystal and structure arrays
 d33         = 23.4e-12  # in meter/Volt.[LiNbO3]
 PP_SLT      = Crystal(10e-6, 10e-6, 1e-5, 200e-6, 200e-6, 5e-3, nz_MgCLN_Gayer, PP_crystal_slab, d33)
-R           = 0.1  # distance to far-field screenin meters
+R           = 0.1  # distance to far-field screen in meters
 Temperature = 50
 M           = len(PP_SLT.x)  # simulation size
 
@@ -85,8 +85,8 @@ key_batch_epoch = random.split(random.PRNGKey(1989), num_epochs)
 
 Nx = len(PP_SLT.x)
 Ny = len(PP_SLT.y)
-
-vac_rnd = random.normal(key, (N, 2, 2, Nx, Ny))
+if learn_mode:
+    vac_rnd = random.normal(key, (N, 2, 2, Nx, Ny))
 # N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
 
 # Build Diagonal-Element indicator matrix for the Kronicker products
@@ -181,9 +181,12 @@ if learn_mode:
 ################
 
 # show last epoch result
-batched_preds   = batched_predict(params, vac_rnd)
-P_ss            = batched_preds.sum(0).real
-P_ss            = P_ss/la.norm(P_ss)
+if save_res or save_tgt or show_res:
+    N_res       = 100
+    vac_rnd_res = random.normal(key, (N_res, 2, 2, Nx, Ny))
+    batched_preds   = batched_predict(params, vac_rnd_res)
+    P_ss            = batched_preds.sum(0).real
+    P_ss            = P_ss/la.norm(P_ss)
 
 if save_res:
     np.save(res_path+res_name, P_ss)
