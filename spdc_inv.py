@@ -1,6 +1,7 @@
 from __future__ import print_function, division, absolute_import
 from jax import grad, vmap, ops
 from jax.numpy import kron, linalg as la
+import numpy as onp
 
 from spdc_helper import *
 import matplotlib.pyplot as plt
@@ -22,12 +23,13 @@ show_res      = True  # display and show results
 # saving results
 save_res      = False
 res_path      = 'results/'          # path to folder. should be given as a user-parameter
-res_name      = 'P_ss_HG00HG33_to_HG00_ep250_batch50_N100_step0.001'
+res_name_pss      = 'P_ss_HG00_inference_N100_xy180e-6'
+res_name_g2      = 'G2_HG00_inference_N100_xy180e-6'
 
 # saving as target
 save_tgt      = False
 Pt_path       = 'targets/'          # path to folder. should be given as a user-parameter
-Pss_t_name   = 'P_ss_HG00'
+Pss_t_name    = 'P_ss_HG00'
 
 # load target P, G2
 if learn_mode:
@@ -71,7 +73,8 @@ Idler   = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature)
 delta_k = Pump.k - Signal.k - Idler.k
 PP_SLT.poling_period = 1.003 * delta_k
 
-
+# add coincidence window
+tau = 1e-9  # nanosec
 
 ###########################################
 # Set dataset
@@ -80,21 +83,19 @@ PP_SLT.poling_period = 1.003 * delta_k
 # seed vacuum samples
 key = random.PRNGKey(1986)
 
-# seed shuffle batches in epochs
-key_batch_epoch = random.split(random.PRNGKey(1989), num_epochs)
-
 Nx = len(PP_SLT.x)
 Ny = len(PP_SLT.y)
 if learn_mode:
-    vac_rnd = random.normal(key, (N, 2, 2, Nx, Ny))
-# N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
+    vac_rnd = random.normal(key, (N, 2, 2, Nx, Ny)) # N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
+    # seed shuffle batches in epochs
+    key_batch_epoch = random.split(random.PRNGKey(1989), num_epochs)
 
-# Build Diagonal-Element indicator matrix for the Kronicker products
-# Kron_diag = np.zeros((M ** 2, M ** 2))
-# Kron_diag = ops.index_update(Kron_diag, ops.index[::M+1,::M+1], 1)
+# Unwrap G2 indices
+G2_unwrapped_idx = onp.ndarray.tolist(unwrap_kron(onp.arange(0, M * M * M * M).reshape(M * M, M * M), M).reshape(M*M*M*M).astype(int))
 
 # normalization factor
-g1_normalization = G1_Normalization(Signal.w)
+g1_ss_normalization = G1_Normalization(Signal.w)
+g1_ii_normalization = G1_Normalization(Idler.w)
 
 # params_coef = random.normal(random.PRNGKey(0), (n_coeff, 2))
 # params      = np.array(params_coef[:, 0] + 1j*params_coef[:, 1])/np.sqrt(2)
@@ -118,11 +119,29 @@ def predict(params, vac_): # vac_ = vac_s, vac_i
     # Coumpute k-space far field using FFT:
     # normalization factors
     FarFieldNorm_signal = (2 * PP_SLT.MaxX) ** 2 / (np.size(Siganl_field.E_out) * Signal.lam * R)
+    FarFieldNorm_idler  = (2 * PP_SLT.MaxX) ** 2 / (np.size(Idler_field.E_out) * Idler.lam * R)
     # FFT:
-    E_s_out_k   = FarFieldNorm_signal * Fourier(Siganl_field.E_out)
-    G1_ss       = kron(np.conj(E_s_out_k), E_s_out_k) / N
-    P_ss        = G1_ss[::M + 1, ::M + 1] / g1_normalization
-    return P_ss
+    E_s_out_k = FarFieldNorm_signal * Fourier(Siganl_field.E_out)
+    E_i_out_k = FarFieldNorm_idler  * Fourier(Idler_field.E_out)
+    # E_s_vac_k = FarFieldNorm_signal * Fourier(Siganl_field.E_vac)
+    E_i_vac_k = FarFieldNorm_idler  * Fourier(Idler_field.E_vac)
+
+    G1_ss        = kron(np.conj(E_s_out_k), E_s_out_k) / N
+    G1_ii        = kron(np.conj(E_i_out_k), E_i_out_k) / N
+    G1_si        = kron(np.conj(E_i_out_k), E_s_out_k) / N
+    G1_si_dagger = kron(np.conj(E_s_out_k), E_i_out_k) / N
+
+    # Q_ss         = kron(E_s_vac_k, E_s_out_k) / N
+    # Q_ss_dagger  = kron(np.conj(E_s_out_k), np.conj(E_s_vac_k)) / N
+    # Q_ii         = kron(E_i_vac_k, E_i_out_k) / N
+    # Q_ii_dagger  = kron(np.conj(E_i_out_k), np.conj(E_i_vac_k)) / N
+    Q_si         = kron(E_i_vac_k, E_s_out_k) / N
+    Q_si_dagger  = kron(np.conj(E_s_out_k), np.conj(E_i_vac_k)) / N
+
+    P_ss         = G1_ss[::M + 1, ::M + 1] / g1_ss_normalization
+    # P_ii         = G1_ii[::M + 1, ::M + 1] / g1_ii_normalization
+
+    return P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
 
 # Make a batched version of the `predict` function
 batched_predict = vmap(predict, in_axes=(None, 0))
@@ -190,11 +209,26 @@ if save_res or save_tgt or show_res:
     N_res       = 100
     vac_rnd_res = random.normal(key, (N_res, 2, 2, Nx, Ny))
     batched_preds   = batched_predict(params, vac_rnd_res)
-    P_ss            = batched_preds.sum(0).real
+    P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
+
+    P_ss            = P_ss.sum(0).real
     P_ss            = P_ss/la.norm(P_ss)
 
+    G1_ii        = G1_ii.sum(0)
+    G1_ss        = G1_ss.sum(0)
+    Q_si_dagger  = Q_si_dagger.sum(0)
+    Q_si         = Q_si.sum(0)
+    G1_si_dagger = G1_si_dagger.sum(0)
+    G1_si        = G1_si.sum(0)
+
+    G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
+    print("--- running time to G2: %s seconds ---" % (time.time() - start_time))
+    G2           = G2.reshape(M * M * M * M)[G2_unwrapped_idx].reshape(M, M, M, M)
+    print("--- running time to G2 unwrapped: %s seconds ---" % (time.time() - start_time))
+
 if save_res:
-    np.save(res_path+res_name, P_ss)
+    np.save(res_path + res_name_pss, P_ss)
+    np.save(res_path + res_name_g2, G2)
 
 if save_tgt:
     np.save(Pt_path+Pss_t_name, P_ss)
@@ -220,6 +254,27 @@ if show_res:
     plt.xlabel(' x [mm]')
     plt.ylabel(' y [mm]')
     plt.title('Single photo-detection probability, Far field')
+    plt.colorbar()
+    plt.show()
+
+
+    # Fourier coordiantes
+    dx_farfield_idler = 1e-3 * (FFcoordinate_axis_Idler[1] - FFcoordinate_axis_Idler[0])
+    dx_farfield_signal = 1e-3 * (FFcoordinate_axis_Signal[1] - FFcoordinate_axis_Signal[0])
+
+    # add coincidence window
+    tau = 1e-9  # nanosec
+
+    # Compute and plot reduced G2
+    G2_reduced = trace_it(G2, 1, 3) * dx_farfield_idler * dx_farfield_signal
+    G2_reduced = G2_reduced * tau / (g1_ii_normalization * g1_ss_normalization)
+
+    # plot
+    plt.figure()
+    plt.imshow(1e-6 * G2_reduced, extent=extents_FFcoordinates_signal)  # AK, Dec08: G2 in counts/sec/mm^2
+    plt.title(r'$G^{(2)}$ (coincidences)')
+    plt.xlabel(r'$x_i$ [mm]')
+    plt.ylabel(r'$x_s$ [mm]')
     plt.colorbar()
     plt.show()
 

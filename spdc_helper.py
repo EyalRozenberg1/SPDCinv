@@ -1,4 +1,5 @@
 from jax import numpy as np, jit, nn, random
+import numpy as onp
 import math as math
 
 
@@ -337,3 +338,31 @@ def make_beam_from_HG(hermite_dict, HG_parameters, PRINT=0):
     # if PRINT:
     #     print(print_str)
     return final
+
+
+'''
+unwrap_kron takes a Kronicker product of size M^2 x M^2 and turns is into an
+M x M x M x M array. It is used only for illustration and not during the learning
+'''
+
+
+def unwrap_kron(C, M):
+    G = onp.zeros((M, M, M, M))
+    for i in range(M):
+        for j in range(M):
+            for k in range(M):
+                for l in range(M):
+                    G[i, j, k, l] = C[k + M * i, l + M * j]
+    return G
+
+
+'''
+TRACE_IT takes an M x M x M x M array representing a Kronecker product, 
+and traces over 2 of its dimensions
+'''
+
+
+def trace_it(G, dim1, dim2):
+    C = np.sum(G, axis=dim1)  # trace over dimesnion dim1
+    C = np.sum(C, axis=dim2 - 1)  # trace over dimesnion dim2
+    return C
