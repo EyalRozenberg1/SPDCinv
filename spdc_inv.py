@@ -34,7 +34,7 @@ Pss_t_name    = 'P_ss_HG00'
 # load target P, G2
 if learn_mode:
     P_ss_t     = np.load(Pt_path+Pss_t_name+'.npy')  # target signal probability-density
-    G2t        = None
+    G2t        = np.load(Pt_path+G2_t_name+'.npy')
 
 
 n_coeff     = 16  # coefficients of beam-basis functions
@@ -43,6 +43,7 @@ step_size   = 0.01
 num_epochs  = 500
 batch_size  = 100  # 20, 20, 50, 100
 N           = 10000  # 100, 500, 1000  number of iterations / dataset size
+alpha       = 0  # weight for loss: (1-alpha)Pss + alpha G2
 
 num_batches = N/batch_size
 assert N % batch_size == 0, "num_batches should be 'signed integer'"
@@ -148,8 +149,20 @@ batched_predict = vmap(predict, in_axes=(None, 0))
 
 def loss(params, vac_, P_ss_t, G2t): # vac_ = vac_s, vac_i, G2t = P and G2 target corrletion matrices
     batched_preds   = batched_predict(params, vac_)
-    P_ss = batched_preds.sum(0).real
+    P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
+
+    P_ss = P_ss.sum(0).real
     P_ss = P_ss / la.norm(P_ss)
+
+    G1_ii = G1_ii.sum(0)
+    G1_ss = G1_ss.sum(0)
+    Q_si_dagger = Q_si_dagger.sum(0)
+    Q_si = Q_si.sum(0)
+    G1_si_dagger = G1_si_dagger.sum(0)
+    G1_si = G1_si.sum(0)
+
+    G2 = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
+    G2 = G2.reshape(M * M * M * M)[G2_unwrapped_idx].reshape(M, M, M, M)
 
     if loss_type is 'l2':
         return la.norm(P_ss - P_ss_t)
@@ -158,12 +171,16 @@ def loss(params, vac_, P_ss_t, G2t): # vac_ = vac_s, vac_i, G2t = P and G2 targe
         """ Epsilon is used here to avoid conditional code for
         checking that neither P nor Q is equal to 0. """
         epsilon = 0
+        Q_pss = P_ss + epsilon
+        P_pss = P_ss_t + epsilon
+        P_ss_loss = np.abs(np.sum(P_pss * np.log(P_pss / Q_pss)))
 
-        # You may want to instead make copies to avoid changing the np arrays.
-        Q = P_ss + epsilon
-        P = P_ss_t + epsilon
+        epsilon = 1e-7
+        Q_g2 = G2 + epsilon
+        P_g2 = G2t + epsilon
+        G2_loss = np.abs(np.sum(P_g2 * np.log(P_g2 / Q_g2)))
 
-        return np.abs(np.sum(P * np.log(P / Q)))
+        return (1 - alpha) * P_ss_loss + alpha * G2_loss
     if loss_type is 'wasserstein':
         raise Exception('not implemented yet')
     else:
@@ -193,7 +210,7 @@ if learn_mode:
       # print(f'l2 loss {la.norm(P_ss_ep - P_ss_t)}')
 
       for x in batch_set:
-          params = update(params, x, P_ss_t)
+          params = update(params, x, P_ss_t, G2t)
           # params = ops.index_update(params, ops.index[:], param_scale * nn.softmax(np.array(params[:])))  # normalize to param_scale (positive numbers)
       epoch_time = time.time() - start_time_epoch
       print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
@@ -222,16 +239,15 @@ if save_res or save_tgt or show_res:
     G1_si        = G1_si.sum(0)
 
     G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
-    print("--- running time to G2: %s seconds ---" % (time.time() - start_time))
     G2           = G2.reshape(M * M * M * M)[G2_unwrapped_idx].reshape(M, M, M, M)
-    print("--- running time to G2 unwrapped: %s seconds ---" % (time.time() - start_time))
 
 if save_res:
     np.save(res_path + res_name_pss, P_ss)
     np.save(res_path + res_name_g2, G2)
 
 if save_tgt:
-    np.save(Pt_path+Pss_t_name, P_ss)
+    np.save(Pt_path + Pss_t_name, P_ss)
+    np.save(Pt_path + G2_t_name, G2)
 
 if show_res:
     FF_position_axis = lambda dx, MaxX, k, R: np.arange(-1 / dx, 1 / dx, 1 / MaxX) * (np.pi * R / k)
