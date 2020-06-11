@@ -78,8 +78,6 @@ tau = 1e-9  # [nanosec]
 Nx = len(PP_SLT.x)
 Ny = len(PP_SLT.y)
 
-# Unwrap G2 indices
-G2_unwrapped_idx = onp.ndarray.tolist(unwrap_kron(onp.arange(0, M * M * M * M).reshape(M * M, M * M), M).reshape(M*M*M*M).astype(int))
 
 # normalization factor
 g1_ss_normalization = G1_Normalization(Signal.w)
@@ -298,6 +296,23 @@ if show_res:
     ################
     # Plot G2 #
     ################
+    # Unwrap G2 indices
+    G2_unwrap_idx_str = 'G2_unwarp_idx/G2_unwrap_M{}.npy'.format(M)
+    if not os.path.exists(G2_unwrap_idx_str):
+        G2_unwrapped_idx_np = onp.zeros((M, M, M, M), dtype='int32')
+        G2_unwrapped_idx_np = \
+            unwrap_kron(G2_unwrapped_idx_np,
+                        onp.arange(0, M * M * M * M, dtype='int32').reshape(M * M, M * M),
+                        M).reshape(M * M * M * M).astype(int)
+
+        np.save(G2_unwrap_idx_str, G2_unwrapped_idx_np)
+
+    else:
+        G2_unwrapped_idx_np = np.load(G2_unwrap_idx_str)
+    G2_unwrapped_idx = onp.ndarray.tolist(G2_unwrapped_idx_np)
+    del G2_unwrapped_idx_np
+
+    G2 = G2.reshape(M * M * M * M)[G2_unwrapped_idx].reshape(M, M, M, M)
     # Fourier coordiantes
     dx_farfield_idler = 1e-3 * (FFcoordinate_axis_Idler[1] - FFcoordinate_axis_Idler[0])
     dx_farfield_signal = 1e-3 * (FFcoordinate_axis_Signal[1] - FFcoordinate_axis_Signal[0])
