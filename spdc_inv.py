@@ -9,7 +9,7 @@ from jax.tree_util import tree_map
 from functools import partial
 import os, time
 
-JAX_ENABLE_X64=False
+JAX_ENABLE_X64 = False
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 num_devices = xla_bridge.device_count()
@@ -148,7 +148,6 @@ def loss(params, vac_): # vac_ = vac_s, vac_i, G2t = P and G2 target corrletion 
     G1_si = G1_si.sum(0)
 
     G2 = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
-    G2 = G2.reshape(M * M * M * M)[G2_unwrapped_idx].reshape(M, M, M, M)
 
     if loss_type is 'l2':
         return la.norm(P_ss - P_ss_t)
