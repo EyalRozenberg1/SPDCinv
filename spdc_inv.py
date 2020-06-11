@@ -251,7 +251,6 @@ if save_res or save_tgt or show_res:
     G1_si        = G1_si.reshape(-1, *G1_si.shape[2:4]).sum(0)
 
     G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
-    G2           = G2.reshape(M * M * M * M)[G2_unwrapped_idx].reshape(M, M, M, M)
 
 if save_res:
     res_name_pss = '2020_05_07_P_ss_HG00PHG33_to_HG00_N120'
