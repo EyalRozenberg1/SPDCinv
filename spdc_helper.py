@@ -78,9 +78,9 @@ class Beam:
             self.hemite_dict = HermiteBank(lam, self.waist, self.waist, max_mode, crystal.x, crystal.y)
             self.profile     = []
 
-    def create_profile(self, HG_parameters):
+    def create_profile(self, HG_parameters, Nb):
         self.profile = HG_parameters
-        self.E = make_beam_from_HG(self.hemite_dict, HG_parameters)
+        self.E = np.tile(make_beam_from_HG(self.hemite_dict, HG_parameters),(Nb,1,1))
 
 '''
 Class Field:
@@ -93,12 +93,12 @@ initialize E_out and E_vac, for a given beam (class Beam) and crystal (class Cry
 
 
 class Field:
-    def __init__(self, beam, crystal, vac_rnd):
+    def __init__(self, beam, crystal, vac_rnd, N):
         Nx = len(crystal.x)
         Ny = len(crystal.y)
-        self.E_out = np.zeros([Nx, Ny], dtype=complex)
+        self.E_out = np.zeros([N, Nx, Ny], dtype=complex)
         vac = np.sqrt(h_bar * beam.w / (2 * eps0 * beam.n ** 2 * crystal.dx * crystal.dy * crystal.MaxZ))
-        self.E_vac = vac * (vac_rnd[0] + 1j * vac_rnd[1]) / np.sqrt(2)
+        self.E_vac = vac * (vac_rnd[:,0] + 1j * vac_rnd[:,1]) / np.sqrt(2)
         self.kappa = 2 * 1j * beam.w ** 2 / (beam.k * c ** 2)  # we leave d_33 out and add it in the propagation function.
         self.k = beam.k
 
