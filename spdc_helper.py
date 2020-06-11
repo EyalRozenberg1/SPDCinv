@@ -346,8 +346,7 @@ M x M x M x M array. It is used only for illustration and not during the learnin
 '''
 
 
-def unwrap_kron(C, M):
-    G = onp.zeros((M, M, M, M))
+def unwrap_kron(G, C, M):
     for i in range(M):
         for j in range(M):
             for k in range(M):
