@@ -8,6 +8,13 @@ from jax.lib import xla_bridge
 from jax.tree_util import tree_map
 from functools import partial
 import os, time
+from datetime import datetime
+
+# datetime object containing current date and time
+now = datetime.now()
+# dd/mm/YY H:M:S
+dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
+print("date and time =", dt_string)
 
 JAX_ENABLE_X64 = False
 
@@ -25,13 +32,13 @@ Pt_path       = 'targets/'  # path to targets folder
 
 if learn_mode:
     # load target P, G2
-    Pss_t_load = 'P_ss_HG00_N120_xy200e-6'
-    G2_t_load  = 'G2_HG00_N120_xy200e-6'
+    Pss_t_load = 'P_ss_HG00_N100_xy200e-6'
+    G2_t_load  = 'G2_HG00_N100_xy200e-6'
     P_ss_t     = np.load(Pt_path + Pss_t_load + '.npy')
     G2t        = np.load(Pt_path + G2_t_load + '.npy')
 
 "Learning Hyperparameters"
-loss_type   = 'kl'  "l2: L2 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein Distance"
+loss_type   = 'kl'  # "l2: L2 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein Distance"
 param_scale = 1
 step_size   = 0.01
 num_epochs  = 500
@@ -87,8 +94,9 @@ vac_rnd = None
 
 # params_coef = random.normal(random.PRNGKey(0), (n_coeff, 2))
 # params      = np.array(params_coef[:, 0] + 1j*params_coef[:, 1])/np.sqrt(2)
-params = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+params = np.array([1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 params = np.divide(params, la.norm(params))
+params_gt = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 # replicate parameters for gpus
 replicate_array = lambda x: np.broadcast_to(x, (num_devices,) + x.shape)
 params          = tree_map(replicate_array, params)
@@ -133,7 +141,7 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     return P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
 
 @jit
-def loss(params, vac_): # vac_ = vac_s, vac_i, G2t = P and G2 target corrletion matrices
+def loss(params, vac_):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
     batched_preds   = forward(params, vac_)
     P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
 
@@ -215,6 +223,8 @@ if learn_mode:
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         print("--- the parameters optimized are: {} ---".format(tree_map(lambda x: x[0].item(), params)))
 
+        ''' print loss values'''
+        print("l1 loss:{:0.3f}".format(np.sum(np.abs(params - params_gt))))
 
 # show last epoch result
 if save_res or save_tgt or show_res:
@@ -231,7 +241,7 @@ if save_res or save_tgt or show_res:
         vac_rnd = pmap(lambda key: random.normal(key, (batch_device, 2, 2, Nx, Ny)))(keys)  # number of devices, N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
 
     batched_preds = pmap(forward)(params, vac_rnd[:, :batch_device])
-
+    del vac_rnd
     ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     # key = random.PRNGKey(1986)
     # vac_rnd = random.normal(key, (num_devices, 25, 2, 2, Nx, Ny))
@@ -259,8 +269,8 @@ if save_res:
     np.save(res_path + res_name_g2, G2)
 
 if save_tgt:
-    Pss_t_name = 'P_ss_HG00_N120_xy200e-6'
-    G2_t_name = 'G2_HG00_N120_xy200e-6'
+    Pss_t_name = 'P_ss_HG00_N{}_xy200e-6'.format(batch_size)
+    G2_t_name = 'G2_HG00_N{}_xy200e-6'.format(batch_size)
     np.save(Pt_path + Pss_t_name, P_ss)
     np.save(Pt_path + G2_t_name, G2)
 
