@@ -1,6 +1,7 @@
 from __future__ import print_function, division, absolute_import
-from jax import grad, pmap, lax
-from jax.numpy import kron, linalg as la
+from jax import grad, value_and_grad, pmap, lax
+from jax.numpy import kron
+from jax.numpy import linalg as la
 from spdc_helper import *
 from jax.experimental import optimizers
 import matplotlib.pyplot as plt
@@ -9,6 +10,8 @@ from jax.tree_util import tree_map
 from functools import partial
 import os, time
 from datetime import datetime
+import jax.numpy as np
+import numpy as onp
 
 # datetime object containing current date and time
 now = datetime.now()
@@ -29,13 +32,6 @@ save_tgt   = False  # save targets
 
 res_path      = 'results/'  # path to results folder
 Pt_path       = 'targets/'  # path to targets folder
-
-if learn_mode:
-    # load target P, G2
-    Pss_t_load = 'P_ss_HG00_N100_xy200e-6'
-    G2_t_load  = 'G2_HG00_N100_xy200e-6'
-    P_ss_t     = np.load(Pt_path + Pss_t_load + '.npy')
-    G2t        = np.load(Pt_path + G2_t_load + '.npy')
 
 "Learning Hyperparameters"
 loss_type   = 'kl'  # "l2: L2 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein Distance"
@@ -94,9 +90,9 @@ vac_rnd = None
 
 # params_coef = random.normal(random.PRNGKey(0), (n_coeff, 2))
 # params      = np.array(params_coef[:, 0] + 1j*params_coef[:, 1])/np.sqrt(2)
-params = np.array([1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+params = np.array([1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 params = np.divide(params, la.norm(params))
-params_gt = np.array([1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+params_gt = np.array([1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 # replicate parameters for gpus
 replicate_array = lambda x: np.broadcast_to(x, (num_devices,) + x.shape)
 params          = tree_map(replicate_array, params)
@@ -141,7 +137,7 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     return P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
 
 @jit
-def loss(params, vac_):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
+def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
     batched_preds   = forward(params, vac_)
     P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
 
@@ -156,20 +152,21 @@ def loss(params, vac_):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlatio
     G1_si = G1_si.sum(0)
 
     G2 = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
+    G2 = G2 / la.norm(G2)
 
     if loss_type is 'l2':
-        return la.norm(P_ss - P_ss_t)
+        return np.sum((P_ss - P_ss_t)**2)
     if loss_type is 'kl':
         # KL Divergence #
         """ Epsilon is used here to avoid conditional code for
         checking that neither P nor Q is equal to 0. """
 
-        epsilon = 0
+        epsilon = 1e-7
         Q_pss = P_ss + epsilon
         P_pss = P_ss_t + epsilon
         P_ss_loss = np.abs(np.sum(P_pss * np.log(P_pss / Q_pss)))
 
-        epsilon = 1e-7
+        epsilon = 1.0
         Q_g2 = G2 + epsilon
         P_g2 = G2t + epsilon
         G2_loss = np.abs(np.sum(P_g2 * np.log(P_g2 / Q_g2)))
@@ -180,19 +177,29 @@ def loss(params, vac_):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlatio
     else:
         raise Exception('Nonstandard loss choice')
 
-# def update(i, opt_state, x):
 # @pmap
+# def update(i, opt_state, x, P_ss_t, G2t):
 @partial(pmap, axis_name='batch')
-def update(params, x):
+def update(params, x, P_ss_t, G2t):
     # params = get_params(opt_state)
-    grads = grad(loss)(params, x)
+    batch_loss, grads = value_and_grad(loss)(params, x, P_ss_t, G2t)
     grads = [lax.psum(dw, 'batch') for dw in grads]
     params = [(w - step_size * dw)
               for (w), (dw) in zip(params, grads)]
-    return params
+    # return batch_loss, opt_update(i, grads, opt_state)
+    return batch_loss, params
 
 
 if learn_mode:
+    # load target P, G2
+    Pss_t_load = 'P_ss_HG00_N100_xy200e-6'
+    G2_t_load  = 'G2_HG00_N100_xy200e-6'
+    P_ss_t     = np.load(Pt_path + Pss_t_load + '.npy')
+    G2t        = np.load(Pt_path + G2_t_load + '.npy')
+
+    P_ss_t     = tree_map(replicate_array, P_ss_t)
+    G2t        = tree_map(replicate_array, G2t)
+
     """Set dataset - Build a dataset of pairs Ai_vac, As_vac"""
     # seed vacuum samples
     keys = random.split(random.PRNGKey(1986), num_devices)
@@ -201,7 +208,7 @@ if learn_mode:
 
     # split to batches
     def get_train_batches(vac_, key_):
-        vac_shuff = random.shuffle(key_, vac_, axis=0)
+        vac_shuff = random.permutation(key_, vac_)
         batch_arr = np.split(vac_shuff, num_batches, axis=0)
         return batch_arr
 
@@ -211,20 +218,26 @@ if learn_mode:
     # Use optimizers to set optimizer initialization and update functions
     # opt_init, opt_update, get_params = optimizers.momentum(step_size=step_size, mass=0.99)
     # opt_state = opt_init(params)
+    losses = []
     for epoch in range(num_epochs):
+        losses.append(0)
         start_time_epoch = time.time()
         batch_set = pmap(get_train_batches)(vac_rnd, key_batch_epoch[:, epoch])
         print("Epoch {} is running".format(epoch))
         for i, x in enumerate(batch_set):
-            # opt_state  = update(epoch+i, opt_state, next(batches))
-            params = update(params, x)
+            # opt_state  = update(epoch+i, opt_state, x, P_ss_t, G2t)
+            batch_loss, params = update(params, x, P_ss_t, G2t)
+            losses[epoch] += batch_loss.mean().item()
         # params = get_params(opt_state)
+        losses[epoch] /= (i+1)
         epoch_time = time.time() - start_time_epoch
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
-        print("--- the parameters optimized are: {} ---".format(tree_map(lambda x: x[0].item(), params)))
-
-        ''' print loss values'''
-        print("l1 loss:{:0.3f}".format(np.sum(np.abs(params - params_gt))))
+        ''' print loss value'''
+        print("loss:{:0.6f}".format(losses[epoch]))
+        params_ = np.array(params)[:, 0]
+        print("optimized parameters: {}".format(params_))
+        print("l1 loss:{:0.6f}".format(np.sum(np.abs(params_-params_gt))))
+        print("l2 loss:{:0.6f}".format(np.sum((params_-params_gt)**2)))
 
 # show last epoch result
 if save_res or save_tgt or show_res:
@@ -251,7 +264,7 @@ if save_res or save_tgt or show_res:
     P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
 
     P_ss            = P_ss.reshape(-1, *P_ss.shape[2:4]).sum(0).real
-    P_ss            = P_ss/la.norm(P_ss)
+    P_ss            = P_ss / la.norm(P_ss)
 
     G1_ii        = G1_ii.reshape(-1, *G1_ii.shape[2:4]).sum(0)
     G1_ss        = G1_ss.reshape(-1, *G1_ss.shape[2:4]).sum(0)
@@ -261,6 +274,7 @@ if save_res or save_tgt or show_res:
     G1_si        = G1_si.reshape(-1, *G1_si.shape[2:4]).sum(0)
 
     G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
+    G2           = G2 / la.norm(G2)
 
 if save_res:
     res_name_pss = '2020_05_07_P_ss_HG00PHG33_to_HG00_N120'
@@ -341,6 +355,5 @@ if show_res:
     plt.colorbar()
     plt.show()
 
-print("--- the parameters optimized are: {} ---".format(params[0]))
 print("--- running time: %s seconds ---" % (time.time() - start_time))
 exit()

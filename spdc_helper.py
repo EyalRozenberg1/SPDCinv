@@ -1,6 +1,8 @@
-from jax import numpy as np, jit, nn, random
-import numpy as onp
-import math as math
+import jax.numpy as np
+import jax.nn as nn
+import jax.random as random
+import math
+from jax import jit
 
 
 ###########################################
@@ -96,7 +98,7 @@ class Field:
     def __init__(self, beam, crystal, vac_rnd, N):
         Nx = len(crystal.x)
         Ny = len(crystal.y)
-        self.E_out = np.zeros([N, Nx, Ny], dtype=complex)
+        self.E_out = np.zeros([N, Nx, Ny])
         vac = np.sqrt(h_bar * beam.w / (2 * eps0 * beam.n ** 2 * crystal.dx * crystal.dy * crystal.MaxZ))
         self.E_vac = vac * (vac_rnd[:,0] + 1j * vac_rnd[:,1]) / np.sqrt(2)
         self.kappa = 2 * 1j * beam.w ** 2 / (beam.k * c ** 2)  # we leave d_33 out and add it in the propagation function.
