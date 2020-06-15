@@ -88,21 +88,17 @@ g1_ii_normalization = G1_Normalization(Idler.w)
 
 vac_rnd = None
 
-# params_coef = random.normal(random.PRNGKey(0), (n_coeff, 2))
-# params      = np.array(params_coef[:, 0] + 1j*params_coef[:, 1])/np.sqrt(2)
 params = np.array([1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 params = np.divide(params, la.norm(params))
 params_gt = np.array([1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 # replicate parameters for gpus
-replicate_array = lambda x: np.broadcast_to(x, (num_devices,) + x.shape)
-params          = tree_map(replicate_array, params)
+params = pmap(lambda x: params)(np.arange(num_devices))
 
 print("--- the parameters initiated are: {} ---".format(params[0]))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 start_time = time.time()
 
 # forward model
-@jit
 def forward(params, vac_): # vac_ = vac_s, vac_i
     N = vac_.shape[0]  # batch size for single gpu
 
@@ -136,13 +132,12 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
 
     return P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
 
-@jit
 def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
+    params = np.divide(params, la.norm(params))
     batched_preds   = forward(params, vac_)
     P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
 
     P_ss = P_ss.sum(0).real
-    P_ss = P_ss / la.norm(P_ss)
 
     G1_ii = G1_ii.sum(0)
     G1_ss = G1_ss.sum(0)
@@ -152,7 +147,6 @@ def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 targ
     G1_si = G1_si.sum(0)
 
     G2 = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
-    G2 = G2 / la.norm(G2)
 
     if loss_type is 'l2':
         return np.sum((P_ss - P_ss_t)**2)
@@ -177,34 +171,26 @@ def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 targ
     else:
         raise Exception('Nonstandard loss choice')
 
-# @pmap
-# def update(i, opt_state, x, P_ss_t, G2t):
 @partial(pmap, axis_name='batch')
-def update(params, x, P_ss_t, G2t):
-    # params = get_params(opt_state)
-    batch_loss, grads = value_and_grad(loss)(params, x, P_ss_t, G2t)
-    grads = [lax.psum(dw, 'batch') for dw in grads]
-    params = [(w - step_size * dw)
-              for (w), (dw) in zip(params, grads)]
-    # return batch_loss, opt_update(i, grads, opt_state)
-    return batch_loss, params
+def update(opt_state, i, x, P_ss_t, G2t):
+    params              = get_params(opt_state)
+    batch_loss, grads   = value_and_grad(loss)(params, x, P_ss_t, G2t)
+    grads               = np.array([lax.psum(dw, 'batch') for dw in grads])
+    return lax.pmean(batch_loss, 'batch'), opt_update(i, grads, opt_state)
 
 
 if learn_mode:
     # load target P, G2
     Pss_t_load = 'P_ss_HG00_N100_xy200e-6'
     G2_t_load  = 'G2_HG00_N100_xy200e-6'
-    P_ss_t     = np.load(Pt_path + Pss_t_load + '.npy')
-    G2t        = np.load(Pt_path + G2_t_load + '.npy')
-
-    P_ss_t     = tree_map(replicate_array, P_ss_t)
-    G2t        = tree_map(replicate_array, G2t)
+    P_ss_t  = pmap(lambda x: np.load(Pt_path + Pss_t_load + '.npy'))(np.arange(num_devices))
+    G2t     = pmap(lambda x: np.load(Pt_path + G2_t_load + '.npy'))(np.arange(num_devices))
 
     """Set dataset - Build a dataset of pairs Ai_vac, As_vac"""
     # seed vacuum samples
     keys = random.split(random.PRNGKey(1986), num_devices)
     # generate dataset for each gpu
-    vac_rnd = pmap(lambda key: random.normal(key, (Ndevice, 2, 2, Nx, Ny)))(keys) # number of devices, N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
+    vac_rnd = pmap(lambda key: random.normal(key, (Ndevice, 2, 2, Nx, Ny)))(keys) # N iteration for device, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
 
     # split to batches
     def get_train_batches(vac_, key_):
@@ -216,26 +202,25 @@ if learn_mode:
     key_batch_epoch = pmap(lambda i: random.split(random.PRNGKey(1989), num_epochs))(np.arange(num_devices))
 
     # Use optimizers to set optimizer initialization and update functions
-    # opt_init, opt_update, get_params = optimizers.momentum(step_size=step_size, mass=0.99)
-    # opt_state = opt_init(params)
+    opt_init, opt_update, get_params = optimizers.adam(step_size, b1=0.9, b2=0.999, eps=1e-08)
+    opt_state = opt_init(params)
     losses = []
     for epoch in range(num_epochs):
-        losses.append(0)
+        losses.append(0.0)
         start_time_epoch = time.time()
         batch_set = pmap(get_train_batches)(vac_rnd, key_batch_epoch[:, epoch])
         print("Epoch {} is running".format(epoch))
         for i, x in enumerate(batch_set):
-            # opt_state  = update(epoch+i, opt_state, x, P_ss_t, G2t)
-            batch_loss, params = update(params, x, P_ss_t, G2t)
-            losses[epoch] += batch_loss.mean().item()
-        # params = get_params(opt_state)
+            idx = pmap(lambda x: np.array(epoch+i))(np.arange(num_devices))
+            batch_loss, opt_state = update(opt_state, idx, x, P_ss_t, G2t)
+            losses[epoch] += batch_loss[0].item()
+        params_ = get_params(opt_state)[0]
         losses[epoch] /= (i+1)
         epoch_time = time.time() - start_time_epoch
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
-        print("loss:{:0.6f}".format(losses[epoch]))
-        params_ = np.array(params)[:, 0]
         print("optimized parameters: {}".format(params_))
+        print("objective loss:{:0.6f}".format(losses[epoch]))
         print("l1 loss:{:0.6f}".format(np.sum(np.abs(params_-params_gt))))
         print("l2 loss:{:0.6f}".format(np.sum((params_-params_gt)**2)))
 
@@ -263,8 +248,7 @@ if save_res or save_tgt or show_res:
 
     P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
 
-    P_ss            = P_ss.reshape(-1, *P_ss.shape[2:4]).sum(0).real
-    P_ss            = P_ss / la.norm(P_ss)
+    P_ss         = P_ss.reshape(-1, *P_ss.shape[2:4]).sum(0).real
 
     G1_ii        = G1_ii.reshape(-1, *G1_ii.shape[2:4]).sum(0)
     G1_ss        = G1_ss.reshape(-1, *G1_ss.shape[2:4]).sum(0)
@@ -274,7 +258,6 @@ if save_res or save_tgt or show_res:
     G1_si        = G1_si.reshape(-1, *G1_si.shape[2:4]).sum(0)
 
     G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
-    G2           = G2 / la.norm(G2)
 
 if save_res:
     res_name_pss = '2020_05_07_P_ss_HG00PHG33_to_HG00_N120'

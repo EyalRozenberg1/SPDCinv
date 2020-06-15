@@ -2,7 +2,6 @@ import jax.numpy as np
 import jax.nn as nn
 import jax.random as random
 import math
-from jax import jit
 
 
 ###########################################
@@ -121,7 +120,6 @@ def random_params(m, key, scale=1):
 Periodically poled crystal slab
 create the crystal slab at point z in the crystal, for poling period 2pi/delta_k
 '''
-@jit
 def PP_crystal_slab(delta_k, z):
     return np.sign(np.cos(np.abs(delta_k) * z))
 
@@ -130,7 +128,6 @@ def PP_crystal_slab(delta_k, z):
 Refractive index for MgCLN, based on Gayer et al, APB 2008
 lambda is in microns, T in celsius
 '''
-@jit
 def nz_MgCLN_Gayer(lam, T):
     a = np.array([5.756, 0.0983, 0.2020, 189.32, 12.52, 1.32 * 10 ** (-2)])
     b = np.array([2.860 * 10 ** (-6), 4.700 * 10 ** (-8), 6.113 * 10 ** (-8), 1.516 * 10 ** (-4)])
@@ -219,7 +216,6 @@ The output is the propagated field.
 Using CGS, or MKS, Boyd 2nd eddition       
 '''
 
-@jit
 def propagate(A, x, y, k, dz):
     dx = np.abs(x[1] - x[0])
     dy = np.abs(y[1] - y[0])
