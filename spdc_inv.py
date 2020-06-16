@@ -1,5 +1,5 @@
 from __future__ import print_function, division, absolute_import
-from jax import grad, value_and_grad, pmap, lax
+from jax import value_and_grad, pmap, lax
 from jax.numpy import kron
 from jax.numpy import linalg as la
 from spdc_helper import *
@@ -25,7 +25,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 num_devices = xla_bridge.device_count()
 start_time_initialization = time.time()
 
-learn_mode = False   # lear/infer
+learn_mode = False   # learn/infer
 show_res   = True   # display results 0/1
 save_res   = False  # save results
 save_tgt   = False  # save targets
@@ -34,13 +34,13 @@ res_path      = 'results/'  # path to results folder
 Pt_path       = 'targets/'  # path to targets folder
 
 "Learning Hyperparameters"
-loss_type   = 'kl'  # "l2: L2 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein Distance"
-param_scale = 1
+loss_type   = 'kl'  # l2:L2 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein Distance", kl+l2
 step_size   = 0.01
 num_epochs  = 500
 batch_size  = 100   # 10, 20, 50, 100 - number of iterations
 N           = 10000  # 100, 500, 1000  - number of total-iterations (dataset size)
 alpha       = 0.5   # weight for loss: (1-alpha)Pss + alpha G2
+gamma       = 0.5  # balance loss kl+l2: kl+gamma*l2
 num_batches = int(N/batch_size)
 Ndevice     = int(N/num_devices)
 batch_device= int(batch_size/num_devices)
@@ -100,7 +100,7 @@ start_time = time.time()
 
 # forward model
 def forward(params, vac_): # vac_ = vac_s, vac_i
-    N = vac_.shape[0]  # batch size for single gpu
+    N = vac_.shape[0]
 
     # initialize the vacuum and output fields:
     Siganl_field    = Field(Signal, PP_SLT, vac_[:, 0], N)
@@ -121,35 +121,25 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     E_i_out_k    = FarFieldNorm_idler  * Fourier(Idler_field.E_out)
     E_i_vac_k    = FarFieldNorm_idler  * Fourier(Idler_field.E_vac)
 
-    G1_ss        = np.array([kron(np.conj(E_s_out_k[i]), E_s_out_k[i]) for i in range(N)]) / N
-    G1_ii        = np.array([kron(np.conj(E_i_out_k[i]), E_i_out_k[i]) for i in range(N)]) / N
-    G1_si        = np.array([kron(np.conj(E_i_out_k[i]), E_s_out_k[i]) for i in range(N)]) / N
-    G1_si_dagger = np.array([kron(np.conj(E_s_out_k[i]), E_i_out_k[i]) for i in range(N)]) / N
-    Q_si         = np.array([kron(E_i_vac_k[i], E_s_out_k[i]) for i in range(N)]) / N
-    Q_si_dagger  = np.array([kron(np.conj(E_s_out_k[i]), np.conj(E_i_vac_k[i])) for i in range(N)]) / N
+    G1_ss        = (np.array([kron(np.conj(E_s_out_k[i]), E_s_out_k[i]) for i in range(N)]) / batch_size).sum(0)
+    G1_ii        = (np.array([kron(np.conj(E_i_out_k[i]), E_i_out_k[i]) for i in range(N)]) / batch_size).sum(0)
+    G1_si        = (np.array([kron(np.conj(E_i_out_k[i]), E_s_out_k[i]) for i in range(N)]) / batch_size).sum(0)
+    G1_si_dagger = (np.array([kron(np.conj(E_s_out_k[i]), E_i_out_k[i]) for i in range(N)]) / batch_size).sum(0)
+    Q_si         = (np.array([kron(E_i_vac_k[i], E_s_out_k[i]) for i in range(N)]) / batch_size).sum(0)
+    Q_si_dagger  = (np.array([kron(np.conj(E_s_out_k[i]), np.conj(E_i_vac_k[i])) for i in range(N)]) / batch_size).sum(0)
 
-    P_ss         = G1_ss[:, ::M + 1, ::M + 1] / g1_ss_normalization
-
-    return P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
+    return G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
 
 def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
     params = np.divide(params, la.norm(params))
     batched_preds   = forward(params, vac_)
-    P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
+    G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
 
-    P_ss = P_ss.sum(0).real
-
-    G1_ii = G1_ii.sum(0)
-    G1_ss = G1_ss.sum(0)
-    Q_si_dagger = Q_si_dagger.sum(0)
-    Q_si = Q_si.sum(0)
-    G1_si_dagger = G1_si_dagger.sum(0)
-    G1_si = G1_si.sum(0)
-
-    G2 = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
+    P_ss         = G1_ss[::M + 1, ::M + 1].real
+    G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
 
     if loss_type is 'l2':
-        return np.sum((P_ss - P_ss_t)**2)
+        return (1-alpha)*np.mean((P_ss - P_ss_t)**2)/np.mean((P_ss)**2) + alpha*np.mean((G2 - G2t)**2)/np.mean((G2)**2)
     if loss_type is 'kl':
         # KL Divergence #
         """ Epsilon is used here to avoid conditional code for
@@ -171,18 +161,18 @@ def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 targ
     else:
         raise Exception('Nonstandard loss choice')
 
-@partial(pmap, axis_name='batch')
+@partial(pmap, axis_name='device')
 def update(opt_state, i, x, P_ss_t, G2t):
     params              = get_params(opt_state)
     batch_loss, grads   = value_and_grad(loss)(params, x, P_ss_t, G2t)
-    grads               = np.array([lax.psum(dw, 'batch') for dw in grads])
-    return lax.pmean(batch_loss, 'batch'), opt_update(i, grads, opt_state)
+    grads               = np.array([lax.psum(dw, 'device') for dw in grads])
+    return lax.pmean(batch_loss, 'device'), opt_update(i, grads, opt_state)
 
 
 if learn_mode:
     # load target P, G2
-    Pss_t_load = 'P_ss_HG00_N100_xy200e-6'
-    G2_t_load  = 'G2_HG00_N100_xy200e-6'
+    Pss_t_load = 'P_ss_HG00_N{}_Nx{}Ny{}'.format(batch_size, Nx, Ny)
+    G2_t_load  = 'G2_HG00_N{}_Nx{}Ny{}'.format(batch_size, Nx, Ny)
     P_ss_t  = pmap(lambda x: np.load(Pt_path + Pss_t_load + '.npy'))(np.arange(num_devices))
     G2t     = pmap(lambda x: np.load(Pt_path + G2_t_load + '.npy'))(np.arange(num_devices))
 
@@ -232,31 +222,23 @@ if save_res or save_tgt or show_res:
     ##########################################
     # Build a dataset of pairs Ai_vac, As_vac
 
-    if vac_rnd is None:
         # seed vacuum samples
         keys = random.split(random.PRNGKey(1986), num_devices)
         # generate dataset for each gpu
         vac_rnd = pmap(lambda key: random.normal(key, (batch_device, 2, 2, Nx, Ny)))(keys)  # number of devices, N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
 
     batched_preds = pmap(forward)(params, vac_rnd[:, :batch_device])
-    del vac_rnd
-    ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    # key = random.PRNGKey(1986)
-    # vac_rnd = random.normal(key, (num_devices, 25, 2, 2, Nx, Ny))
-    # batched_preds = pmap(forward)(params, vac_rnd)
-    ##%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-    P_ss, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
+    G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
 
-    P_ss         = P_ss.reshape(-1, *P_ss.shape[2:4]).sum(0).real
+    G1_ii        = G1_ii.sum(0)
+    G1_ss        = G1_ss.sum(0)
+    Q_si_dagger  = Q_si_dagger.sum(0)
+    Q_si         = Q_si.sum(0)
+    G1_si_dagger = G1_si_dagger.sum(0)
+    G1_si        = G1_si.sum(0)
 
-    G1_ii        = G1_ii.reshape(-1, *G1_ii.shape[2:4]).sum(0)
-    G1_ss        = G1_ss.reshape(-1, *G1_ss.shape[2:4]).sum(0)
-    Q_si_dagger  = Q_si_dagger.reshape(-1, *Q_si_dagger.shape[2:4]).sum(0)
-    Q_si         = Q_si.reshape(-1, *Q_si.shape[2:4]).sum(0)
-    G1_si_dagger = G1_si_dagger.reshape(-1, *G1_si_dagger.shape[2:4]).sum(0)
-    G1_si        = G1_si.reshape(-1, *G1_si.shape[2:4]).sum(0)
-
+    P_ss         = G1_ss[::M + 1, ::M + 1].real
     G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
 
 if save_res:
@@ -266,8 +248,8 @@ if save_res:
     np.save(res_path + res_name_g2, G2)
 
 if save_tgt:
-    Pss_t_name = 'P_ss_HG00_N{}_xy200e-6'.format(batch_size)
-    G2_t_name = 'G2_HG00_N{}_xy200e-6'.format(batch_size)
+    Pss_t_name = 'P_ss_HG00_N{}_Nx{}Ny{}'.format(batch_size,Nx,Ny)
+    G2_t_name = 'G2_HG00_N{}_Nx{}Ny{}'.format(batch_size,Nx,Ny)
     np.save(Pt_path + Pss_t_name, P_ss)
     np.save(Pt_path + G2_t_name, G2)
 
@@ -288,6 +270,8 @@ if show_res:
     # calculate theoretical angle for signal
     theoretical_angle = np.arccos((Pump.k - PP_SLT.poling_period) / 2 / Signal.k)
     theoretical_angle = np.arcsin(Signal.n * np.sin(theoretical_angle) / 1)  # Snell's law
+
+    P_ss /= g1_ss_normalization
 
     plt.figure()
     plt.imshow(P_ss * 1e-6, extent=extents_FFcoordinates_signal)  # AK, Dec08: Units of counts/mm^2*sec
