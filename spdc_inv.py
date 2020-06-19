@@ -12,6 +12,7 @@ import os, time
 from datetime import datetime
 import jax.numpy as np
 import numpy as onp
+from loss_funcs import l1_loss, kl_loss, sinkhorn_loss
 
 # datetime object containing current date and time
 now = datetime.now()
@@ -34,13 +35,13 @@ res_path      = 'results/'  # path to results folder
 Pt_path       = 'targets/'  # path to targets folder
 
 "Learning Hyperparameters"
-loss_type   = 'kl'  # l2:L2 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein Distance", kl+l2
+loss_type   = 'l1'  # l1:L1 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance", kll1: kl+gamma*l1
 step_size   = 0.01
 num_epochs  = 500
 batch_size  = 100   # 10, 20, 50, 100 - number of iterations
 N           = 10000  # 100, 500, 1000  - number of total-iterations (dataset size)
-alpha       = 0.5   # weight for loss: (1-alpha)Pss + alpha G2
-gamma       = 0.5  # balance loss kl+l2: kl+gamma*l2
+alpha       = 0.5   # in [0,1]; weight for loss: (1-alpha)Pss + alpha G2
+gamma       = 1.0  # in [0, inf]; balance loss kll1: kl+gamma*l1
 num_batches = int(N/batch_size)
 Ndevice     = int(N/num_devices)
 batch_device= int(batch_size/num_devices)
@@ -86,8 +87,8 @@ Ny = len(PP_SLT.y)
 g1_ss_normalization = G1_Normalization(Signal.w)
 g1_ii_normalization = G1_Normalization(Idler.w)
 
-vac_rnd = None
-
+# params_coef = random.normal(random.PRNGKey(0), (n_coeff, 2))
+# params      = np.array(params_coef[:, 0] + 1j*params_coef[:, 1])
 params = np.array([1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 params = np.divide(params, la.norm(params))
 params_gt = np.array([1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
@@ -138,26 +139,21 @@ def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 targ
     P_ss         = G1_ss[::M + 1, ::M + 1].real
     G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
 
-    if loss_type is 'l2':
-        return (1-alpha)*np.mean((P_ss - P_ss_t)**2)/np.mean((P_ss)**2) + alpha*np.mean((G2 - G2t)**2)/np.mean((G2)**2)
+    P_ss    = P_ss / np.sum(np.abs(P_ss))
+    G2      = G2 / np.sum(np.abs(G2))
+
+    if loss_type is 'l1':
+        return (1-alpha)*l1_loss(P_ss, P_ss_t) + alpha*l1_loss(G2, G2t)
     if loss_type is 'kl':
-        # KL Divergence #
-        """ Epsilon is used here to avoid conditional code for
-        checking that neither P nor Q is equal to 0. """
-
-        epsilon = 1e-7
-        Q_pss = P_ss + epsilon
-        P_pss = P_ss_t + epsilon
-        P_ss_loss = np.abs(np.sum(P_pss * np.log(P_pss / Q_pss)))
-
-        epsilon = 1.0
-        Q_g2 = G2 + epsilon
-        P_g2 = G2t + epsilon
-        G2_loss = np.abs(np.sum(P_g2 * np.log(P_g2 / Q_g2)))
-
-        return (1 - alpha) * P_ss_loss + alpha * G2_loss
+        return (1-alpha)*kl_loss(P_ss_t, P_ss, eps=1e-7)+alpha*kl_loss(G2t, G2, eps=1)
+    if loss_type is 'kll1':
+        l1_l = (1-alpha)*l1_loss(P_ss, P_ss_t) + alpha*l1_loss(G2, G2t)
+        kl_l = (1-alpha)*kl_loss(P_ss_t, P_ss, eps=1e-7)+alpha*kl_loss(G2t, G2, eps=1)
+        return kl_l + gamma * l1_l
     if loss_type is 'wass':
-        raise Exception('not implemented yet')
+        return 1e7*sinkhorn_loss(P_ss, P_ss_t, M, eps=1e-3, max_iters=100, stop_thresh=None)
+    if loss_type is 'wass_kl':
+        return 1e7*sinkhorn_loss(P_ss, P_ss_t, M, eps=1e-3, max_iters=100, stop_thresh=None) + kl_loss(G2t, G2, eps=1)
     else:
         raise Exception('Nonstandard loss choice')
 
@@ -227,7 +223,7 @@ if save_res or save_tgt or show_res:
         # generate dataset for each gpu
         vac_rnd = pmap(lambda key: random.normal(key, (batch_device, 2, 2, Nx, Ny)))(keys)  # number of devices, N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
 
-    batched_preds = pmap(forward)(params, vac_rnd[:, :batch_device])
+    batched_preds = pmap(forward)(params, vac_rnd)
 
     G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
 
@@ -250,8 +246,9 @@ if save_res:
 if save_tgt:
     Pss_t_name = 'P_ss_HG00_N{}_Nx{}Ny{}'.format(batch_size,Nx,Ny)
     G2_t_name = 'G2_HG00_N{}_Nx{}Ny{}'.format(batch_size,Nx,Ny)
-    np.save(Pt_path + Pss_t_name, P_ss)
-    np.save(Pt_path + G2_t_name, G2)
+    # save normalized version
+    np.save(Pt_path + Pss_t_name, P_ss/np.sum(np.abs(P_ss)))
+    np.save(Pt_path + G2_t_name, G2/np.sum(np.abs(G2)))
 
 if show_res:
     ################
