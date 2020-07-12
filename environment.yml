@@ -13,7 +13,7 @@ dependencies:
   - c-ares=1.15.0=h7b6447c_1001
   - ca-certificates=2020.1.1=0
   - cachetools=3.1.1=py_0
-  - certifi=2019.11.28=py37_1
+  - certifi=2020.4.5.1=py37_0
   - cffi=1.13.2=py37h2e261b9_0
   - chardet=3.0.4=py37_1003
   - click=7.0=py37_0
@@ -25,6 +25,7 @@ dependencies:
   - expat=2.2.6=he6710b0_0
   - fontconfig=2.13.0=h9420a91_0
   - freetype=2.9.1=h8a8886c_1
+  - gast=0.2.2=py37_0
   - glib=2.63.1=h5a9c865_0
   - google-auth=1.11.2=py_0
   - google-auth-oauthlib=0.4.1=py_2
@@ -63,10 +64,10 @@ dependencies:
   - numpy=1.18.1=py37h4f9e942_0
   - numpy-base=1.18.1=py37hde5b4d6_1
   - oauthlib=3.1.0=py_0
-  - openssl=1.1.1e=h7b6447c_0
+  - openssl=1.1.1g=h7b6447c_0
   - opt_einsum=3.1.0=py_0
   - pcre=8.43=he6710b0_0
-  - pip=20.0.2=py37_1
+  - pip=20.0.2=py37_3
   - protobuf=3.11.4=py37he6710b0_0
   - pyasn1=0.4.8=py_0
   - pyasn1-modules=0.2.7=py_0
@@ -104,18 +105,15 @@ dependencies:
   - xz=5.2.4=h14c3975_4
   - zlib=1.2.11=h7b6447c_3
   - pip:
-    - astunparse==1.6.3
-    - attrs==19.3.0
-    - future==0.18.2
-    - gast==0.3.3
-    - jax==0.1.59
-    - jax-loss==0.0.1
-    - jaxlib==0.1.38
-    - tb-nightly==2.2.0a20200324
-    - tensorboard-plugin-wit==1.6.0.post2
-    - tf-estimator-nightly==2.3.0.dev2020032401
-    - tf-nightly==2.2.0.dev20200324
-    - tfds-nightly==2.1.0.dev202003240105
-    - tqdm==4.43.0
+    - decorator==4.4.2
+    - imageio==2.8.0
+    - jax==0.1.70
+    - jaxlib==0.1.47
+    - networkx==2.4
+    - pillow==7.1.2
+    - polartransform==2.0.0
+    - pywavelets==1.1.1
+    - scikit-image==0.17.2
+    - tifffile==2020.6.3
 prefix: /home/eyalrozenberg/anaconda3/envs/spdc
 
