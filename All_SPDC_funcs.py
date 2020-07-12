@@ -106,20 +106,22 @@ compute everything to do with a beam.
 
 class Beam:
     def __init__(self, lam, crystal, T, waist=0, power=0, max_mode=0):
-        self.lam = lam  # wavelength
+        self.lam   = lam  # wavelength
         self.waist = waist  # waist
-        self.n = crystal.ctype(lam * 1e6, T)  # refractive index
-        self.w = 2 * np.pi * c / lam  # frequency
-        self.k = 2 * np.pi * crystal.ctype(lam * 1e6, T) / lam  # wave vector
-        self.b = waist ** 2 * self.k  #
+        self.n     = crystal.ctype(lam * 1e6, T)  # refractive index
+        self.w     = 2 * np.pi * c / lam  # frequency
+        self.k     = 2 * np.pi * crystal.ctype(lam * 1e6, T) / lam  # wave vector
+        self.b     = waist ** 2 * self.k  #
         self.power = power  # beam power
         if max_mode:  
             self.hemite_dict = HermiteBank(lam, self.waist, self.waist, max_mode, crystal.x, crystal.y)
             self.profile     = []
         
-    def create_profile(self,HG_parameters):
+    def create_profile(self,HG_parameters, crystal):
         self.profile = HG_parameters
-        self.E       = make_beam_from_HG(self.hemite_dict, HG_parameters)
+        E_temp       = make_beam_from_HG(self.hemite_dict, HG_parameters, self.power)
+        self.E       = fix_power(E_temp,self.power,self.n,crystal.dx,crystal.dy)
+
 
 '''
 Class Field:
@@ -138,11 +140,8 @@ class Field:
         self.E_out = np.zeros([Nx, Ny], dtype=complex)
         vac = np.sqrt(h_bar * beam.w / (2 * eps0 * beam.n ** 2 * crystal.dx * crystal.dy * crystal.MaxZ))
         self.E_vac = vac * (np.random.normal(loc=0, scale=1, size=(Nx, Ny)) + 1j * np.random.normal(loc=0, scale=1,
-                                                                                                    size=(
-                                                                                                        Nx, Ny))) / np.sqrt(
-            2)
-        self.kappa = 2 * 1j * beam.w ** 2 / (
-                beam.k * c ** 2)  # we leave d_33 out and add it in the propagation function.
+                                                                                                    size=(Nx, Ny))) / np.sqrt(2)
+        self.kappa = 2 * 1j * beam.w ** 2 / (beam.k * c ** 2)  # we leave d_33 out and add it in the propagation function.
         self.k = beam.k
 
 
@@ -297,7 +296,7 @@ def crystal_prop(Pump, Siganl_field, Idler_field, crystal, gaussian = 1):
             
         # pump beam:
         if not gaussian:
-            E_pump = propagate(Pump.E, x ,y, Pump.k, z) * np.exp(1j * Pump.k * z)
+            E_pump = propagate( Pump.E, x ,y, Pump.k, z) * np.exp(1j * Pump.k * z)
         else:
             E_pump = Gaussian_beam_calc(Pump, crystal, z)
         # crystal slab:
@@ -312,8 +311,8 @@ def crystal_prop(Pump, Siganl_field, Idler_field, crystal, gaussian = 1):
         Siganl_field.E_vac = Siganl_field.E_vac + dEs_vac_dz * crystal.dz
 
         # idler:
-        dEi_out_dz = Idler_field.kappa * crystal.d * PP * E_pump * np.conj(Siganl_field.E_vac)
-        dEi_vac_dz = Idler_field.kappa * crystal.d * PP * E_pump * np.conj(Siganl_field.E_out)
+        dEi_out_dz        = Idler_field.kappa * crystal.d * PP * E_pump * np.conj(Siganl_field.E_vac)
+        dEi_vac_dz        = Idler_field.kappa * crystal.d * PP * E_pump * np.conj(Siganl_field.E_out)
 
         Idler_field.E_out = Idler_field.E_out + dEi_out_dz * crystal.dz
         Idler_field.E_vac = Idler_field.E_vac + dEi_vac_dz * crystal.dz
@@ -378,8 +377,6 @@ def kron(A, B):
 unwrap_kron takes a Kronicker product of size M^2 x M^2 and turns is into an
 M x M x M x M array. It is used only for illustration and not during the learning
 '''
-
-
 def unwrap_kron(C, M):
     G = np.zeros((M, M, M, M))
     for i in range(M):
@@ -427,8 +424,6 @@ Refractive index for MgCLN, based on Gayer et al, APB 2008
 lambda is in microns, T in celsius
 
 '''
-
-
 def nz_MgCLN_Gayer(lam, T):
     a = np.array([5.756, 0.0983, 0.2020, 189.32, 12.52, 1.32 * 10 ** (-2)])
     b = np.array([2.860 * 10 ** (-6), 4.700 * 10 ** (-8), 6.113 * 10 ** (-8), 1.516 * 10 ** (-4)])
@@ -517,6 +512,7 @@ make a beam from HG modes
 hermite_dict  - a dictionary of HG modes. ordered in dictionary order (00,01,10,11)
 HG_parameters - the wieght of each mode in hermite_dict
 these two have to have the same length!
+This does not make sure the power is normalized right
 '''
 
 def make_beam_from_HG(hermite_dict, HG_parameters, PRINT = 0):
@@ -557,7 +553,9 @@ Decompose a state A into modes defined in the dictionary
 '''
 def decompose(A, hermite_dict, PRINT = 0):
     decomopsition = []
-    minval        = project(hermite_dict['00'] , hermite_dict['02'])
+    minval1       = np.abs(project(hermite_dict['00'] , hermite_dict['02']))
+    minval2       = np.abs(project(hermite_dict['00'] , hermite_dict['01']))
+    minval        = min(minval1,minval2)*1.1
     print_str     = str([])
     
     for n, (mode_x, HG) in enumerate(hermite_dict.items()):
@@ -566,9 +564,25 @@ def decompose(A, hermite_dict, PRINT = 0):
 
     if PRINT: #for showing the result
         D = np.array(decomopsition)
-        norm              = np.min(np.abs(D[np.nonzero(D)]))
+        norm              = 1;#np.min(np.abs(D[np.nonzero(D)]))
         for n, (mode_x, HG) in enumerate(hermite_dict.items()):   
             if decomopsition[n]:
-                print_str = print_str  + ' + ' + str(decomopsition[n]/(norm)) + 'HG' + mode_x          
+                print_str = print_str  + ' + ' + str(round(decomopsition[n]/(norm),4)) + 'HG' + mode_x          
         print(print_str)       
     return decomopsition
+
+'''
+This function takes a field A and normalizes in to have the power indicated
+''' 
+def fix_power(A,power,n,dx,dy):
+    output  = A * np.sqrt(power) / np.sqrt(Power2D(A,n,dx,dy))
+    return output
+
+'''
+'''
+def fix_power1(E_fix,E_original,beam,crystal):
+    n  = beam.n
+    dx = crystal.dx
+    dy = crystal.dy
+    power = Power2D(E_original,n,dx,dy)
+    return fix_power(E_fix,power,n,dx,dy)
