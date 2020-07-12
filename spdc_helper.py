@@ -19,6 +19,8 @@ SFG_idler_wavelength    = lambda lambda_p, lambda_s: lambda_p * lambda_s / (lamb
 E0                      = lambda P, n, W0: np.sqrt(P / (n * c * eps0 * np.pi * W0 ** 2))  # Calc amplitude
 Fourier                 = lambda A: (np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A))))  # Fourier
 G1_Normalization        = lambda w: h_bar * w / (2 * eps0 * c)
+I                       = lambda A, n: 2 * n * eps0 * c * np.abs(A) ** 2  # Intensity
+Power2D                 = lambda A, n, dx, dy: np.sum(I(A, n)) * dx * dy
 
 #################################################################
 # Create classes:
@@ -75,13 +77,16 @@ class Beam:
         self.k = 2 * np.pi * crystal.ctype(lam * 1e6, T) / lam  # wave vector
         self.b = waist ** 2 * self.k  #
         self.power = power  # beam power
+        self.crystal_dx = crystal.dx
+        self.crystal_dy = crystal.dy
         if max_mode:
             self.hemite_dict = HermiteBank(lam, self.waist, self.waist, max_mode, crystal.x, crystal.y)
             self.profile     = []
 
     def create_profile(self, HG_parameters, Nb):
         self.profile = HG_parameters
-        self.E = np.tile(make_beam_from_HG(self.hemite_dict, HG_parameters),(Nb,1,1))
+        E_temp       = np.tile(make_beam_from_HG(self.hemite_dict, HG_parameters), (Nb, 1, 1))
+        self.E       = fix_power(E_temp, self.power, self.n, self.crystal_dx, self.crystal_dy)
 
 '''
 Class Field:
@@ -363,3 +368,57 @@ def trace_it(G, dim1, dim2):
     C = np.sum(G, axis=dim1)  # trace over dimesnion dim1
     C = np.sum(C, axis=dim2 - 1)  # trace over dimesnion dim2
     return C
+
+
+'''
+project: projects some state A to projected_state
+Both are matrices of the same size
+'''
+
+
+def project(projected_state , A, minval=0):
+    projection      = np.sum(np.conj(projected_state)*(A))
+    normalization1  = np.sum(np.abs(A**2))
+    normalization2  = np.sum(np.abs(projected_state**2))
+    projection      = projection/np.sqrt(normalization1*normalization2)
+    cond1 = np.abs(np.real(projection)) <= np.abs(minval)
+    cond2 = np.abs(np.imag(projection)) <= np.abs(minval)
+    projection = cond1*(cond2*0+(1-cond2)*1j*np.imag(projection)) + (1-cond1)*(np.real(projection))
+    return projection
+
+
+'''
+Decompose a state A into modes defined in the dictionary
+'''
+
+
+def decompose(A, hermite_dict, N):
+    decomopsition = []
+    minval1 = np.abs(project(hermite_dict['00'], hermite_dict['02']))
+    minval2 = np.abs(project(hermite_dict['00'], hermite_dict['01']))
+    minval = min(minval1, minval2) * 1.1
+    print_str = str([])
+
+    for n, (mode_x, HG) in enumerate(hermite_dict.items()):
+        projection = np.array([project(HG, A[i], minval) for i in range(N)])
+        decomopsition.append(projection)
+
+    return np.transpose(np.array(decomopsition))
+
+''' 
+This function takes a field A and normalizes in to have the power indicated 
+'''
+
+
+def fix_power(A, power, n, dx, dy):
+    output = A * np.sqrt(power) / np.sqrt(Power2D(A, n, dx, dy))
+    return output
+
+'''
+'''
+def fix_power1(E_fix, E_original, beam, crystal):
+    n  = beam.n
+    dx = crystal.dx
+    dy = crystal.dy
+    power = Power2D(E_original, n, dx, dy)
+    return fix_power(E_fix, power, n, dx, dy)
