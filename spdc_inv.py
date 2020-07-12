@@ -6,7 +6,6 @@ from spdc_helper import *
 from jax.experimental import optimizers
 import matplotlib.pyplot as plt
 from jax.lib import xla_bridge
-from jax.tree_util import tree_map
 from functools import partial
 import os, time
 from datetime import datetime
@@ -23,6 +22,7 @@ print("date and time =", dt_string)
 JAX_ENABLE_X64 = False
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
+
 num_devices = xla_bridge.device_count()
 start_time_initialization = time.time()
 
@@ -55,7 +55,7 @@ assert batch_size % num_devices == 0, "The number of examples within a batch sho
 "Interaction Initialization"
 # Structure arrays - initialize crystal and structure arrays
 d33         = 23.4e-12  # in meter/Volt.[LiNbO3]
-PP_SLT      = Crystal(10e-6, 10e-6, 1e-5, 200e-6, 200e-6, 5e-3, nz_MgCLN_Gayer, PP_crystal_slab, d33)
+PP_SLT      = Crystal(10e-6, 10e-6, 1e-5, 200e-6, 200e-6, 5e-3, d33)
 R           = 0.1  # distance to far-field screen in meters
 Temperature = 50
 M           = len(PP_SLT.x)  # simulation size

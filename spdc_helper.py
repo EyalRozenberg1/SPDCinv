@@ -39,7 +39,7 @@ initialize all strcutres of crystal
     - poliong period (optional): the poling period of the crystal
 '''
 class Crystal:
-    def __init__(self, dx, dy, dz, MaxX, MaxY, MaxZ, Ref_ind, slab_function, d, period=0):
+    def __init__(self, dx, dy, dz, MaxX, MaxY, MaxZ, d, period=0):
         self.dz = dz  # resolution of z axis
         self.dx = dx  # resolution of x axis
         self.dy = dy  # resolution of y axis
@@ -49,8 +49,8 @@ class Crystal:
         self.x = np.arange(-MaxX, MaxX, dx)  # x axis, length 2*MaxX (transverse)
         self.y = np.arange(-MaxY, MaxY, dy)  # y axis, length 2*MaxY  (transverse)
         self.z = np.arange(-MaxZ / 2, MaxZ / 2, dz)  # z axis, length MaxZ (propagation)
-        self.ctype = Ref_ind  # refractive index function
-        self.slab = slab_function
+        self.ctype = nz_MgCLN_Gayer  # refractive index function
+        self.slab = PP_crystal_slab
         self.d = d
         self.poling_period = period
 
