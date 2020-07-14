@@ -11,6 +11,7 @@ import os, time
 from datetime import datetime
 import jax.numpy as np
 import numpy as onp
+from jax.ops import index_update
 from loss_funcs import l1_loss, kl_loss, sinkhorn_loss
 
 # datetime object containing current date and time
@@ -30,7 +31,6 @@ learn_mode = False  # learn/infer
 show_res   = True   # display results 0/1
 save_res   = False  # save results
 save_tgt   = False  # save targets
-DO_HG      = True   # Flag for projecting to HG modes
 
 res_path      = 'results/'  # path to results folder
 Pt_path       = 'targets/'  # path to targets folder
@@ -56,7 +56,7 @@ assert batch_size % num_devices == 0, "The number of examples within a batch sho
 "Interaction Initialization"
 # Structure arrays - initialize crystal and structure arrays
 d33         = 23.4e-12  # in meter/Volt.[LiNbO3]
-PP_SLT      = Crystal(10e-6, 10e-6, 1e-5, 200e-6, 200e-6, 5e-3, d33)
+PP_SLT      = Crystal(5e-6, 5e-6, 1e-5, 200e-6, 200e-6, 5e-3, d33)
 R           = 0.1  # distance to far-field screen in meters
 Temperature = 50
 M           = len(PP_SLT.x)  # simulation size
@@ -66,8 +66,8 @@ M           = len(PP_SLT.x)  # simulation size
     * define two pump's function (for now n_coeff must be 2) to define the pump *
     * this should be later changed to the definition given by Sivan *
 """
-max_mode = 4
-n_coeff  = 2 ** max_mode  # coefficients of beam-basis functions
+max_mode = 10
+n_coeff  = max_mode**2  # coefficients of beam-basis functions
 Pump     = Beam(532e-9, PP_SLT, Temperature, 50e-6, 1e-3, max_mode)  # wavelength, crystal, tmperature,waist,power, maxmode
 Signal   = Beam(1064e-9, PP_SLT, Temperature, np.sqrt(2)*Pump.waist, 1, max_mode)
 Idler    = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature, np.sqrt(2)*Pump.waist, 1, max_mode)
@@ -83,16 +83,19 @@ tau = 1e-9  # [nanosec]
 Nx = len(PP_SLT.x)
 Ny = len(PP_SLT.y)
 
-
 # normalization factor
 g1_ss_normalization = G1_Normalization(Signal.w)
 g1_ii_normalization = G1_Normalization(Idler.w)
 
 # params_coef = random.normal(random.PRNGKey(0), (n_coeff, 2))
 # params      = np.array(params_coef[:, 0] + 1j*params_coef[:, 1])
-params = np.array([1.0, 1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+params = np.zeros(n_coeff)
+params = index_update(params, 0, 1.0)
 params = np.divide(params, la.norm(params))
-params_gt = np.array([1.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+params_gt = np.zeros(n_coeff)
+params_gt = index_update(params_gt, 0, 1.0)
+params_gt = np.divide(params_gt, la.norm(params_gt))
 # replicate parameters for gpus
 params = pmap(lambda x: params)(np.arange(num_devices))
 
@@ -114,25 +117,22 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     # Propagate through the crystal:
     crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT)
 
-    if DO_HG:
+
         E_s_out_HG = np.reshape(decompose(Siganl_field.E_out, Signal.hemite_dict, N), (N, max_mode, max_mode))
         E_i_out_HG = np.reshape(decompose(Idler_field.E_out, Signal.hemite_dict, N), (N, max_mode, max_mode))
-        E_i_vac_HG = np.reshape(decompose(Idler_field.E_vac, Signal.hemite_dict, N), (N, max_mode, max_mode))
-
-        # say there are no higher modes by normalizing the power
+    E_i_vac_HG = np.reshape(decompose(Idler_field.E_vac, Signal.hemite_dict, N), (N, max_mode, max_mode))
+    # say there are no higher modes by normalizing the power
         E_s_out = fix_power1(E_s_out_HG, Siganl_field.E_out, Signal, PP_SLT)
         E_i_out = fix_power1(E_i_out_HG, Idler_field.E_out, Signal, PP_SLT)
-        E_i_vac = fix_power1(E_i_vac_HG, Idler_field.E_vac, Signal, PP_SLT)
-    else:
-        "Coumpute k-space far field using FFT:"
-        # normalization factors
-        FarFieldNorm_signal = (2 * PP_SLT.MaxX) ** 2 / (np.size(Siganl_field.E_out) * Signal.lam * R)
-        FarFieldNorm_idler  = (2 * PP_SLT.MaxX) ** 2 / (np.size(Idler_field.E_out) * Idler.lam * R)
-        # FFT:
-        E_s_out = FarFieldNorm_signal * Fourier(Siganl_field.E_out)
-        E_i_out = FarFieldNorm_idler  * Fourier(Idler_field.E_out)
-        E_i_vac = FarFieldNorm_idler  * Fourier(Idler_field.E_vac)
+    E_i_vac = fix_power1(E_i_vac_HG, Idler_field.E_vac, Signal, PP_SLT)
 
+    "Coumpute k-space far field using FFT:"
+    # normalization factors
+    FarFieldNorm_signal = (2 * PP_SLT.MaxX) ** 2 / (np.size(Siganl_field.E_out) * Signal.lam * R)
+    # FFT:
+    E_s_out_k = FarFieldNorm_signal * Fourier(Siganl_field.E_out)
+
+    G1_ss_k      = (np.array([kron(np.conj(E_s_out_k[i]), E_s_out_k[i]) for i in range(N)]) / batch_size).sum(0)
     G1_ss        = (np.array([kron(np.conj(E_s_out[i]), E_s_out[i]) for i in range(N)]) / batch_size).sum(0)
     G1_ii        = (np.array([kron(np.conj(E_i_out[i]), E_i_out[i]) for i in range(N)]) / batch_size).sum(0)
     G1_si        = (np.array([kron(np.conj(E_i_out[i]), E_s_out[i]) for i in range(N)]) / batch_size).sum(0)
@@ -140,18 +140,16 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     Q_si         = (np.array([kron(E_i_vac[i], E_s_out[i]) for i in range(N)]) / batch_size).sum(0)
     Q_si_dagger  = (np.array([kron(np.conj(E_s_out[i]), np.conj(E_i_vac[i])) for i in range(N)]) / batch_size).sum(0)
 
-    return G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
+    return G1_ss_k, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
 
 def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
     params = np.divide(params, la.norm(params))
     batched_preds   = forward(params, vac_)
-    G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
+    G1_ss_k, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
 
-    if DO_HG:
-        P_ss = G1_ss[::max_mode + 1, ::max_mode + 1].real
-    else:
-        P_ss     = G1_ss[::M + 1, ::M + 1].real
-    G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
+
+    P_ss     = G1_ss_k[::M + 1, ::M + 1].real
+    G2       = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
 
     P_ss    = P_ss / np.sum(np.abs(P_ss))
     G2      = G2 / np.sum(np.abs(G2))
@@ -239,8 +237,9 @@ if save_res or save_tgt or show_res:
 
     batched_preds = pmap(forward)(params, vac_rnd)
 
-    G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
+    G1_ss_k, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
 
+    G1_ss_k      = G1_ss_k.sum(0)
     G1_ii        = G1_ii.sum(0)
     G1_ss        = G1_ss.sum(0)
     Q_si_dagger  = Q_si_dagger.sum(0)
@@ -248,27 +247,21 @@ if save_res or save_tgt or show_res:
     G1_si_dagger = G1_si_dagger.sum(0)
     G1_si        = G1_si.sum(0)
 
-    P_ss         = G1_ss[::M + 1, ::M + 1].real
+    P_ss         = G1_ss_k[::M + 1, ::M + 1].real
     G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
 
-if save_res:
-    res_name_pss = '2020_05_07_P_ss_HG00PHG33_to_HG00_N120'
-    res_name_g2 = '2020_05_07_G2_HG00PHG33_to_HG00_N120'
-    np.save(res_path + res_name_pss, P_ss)
-    np.save(res_path + res_name_g2, G2)
+    if save_tgt:
+        HG_str = make_beam_from_HG_str(Pump.hemite_dict, params)
+        Pss_t_name = 'P_ss' + HG_str + '_N{}_Nx{}Ny{}'.format(batch_size, Nx, Ny)
+        G2_t_name = 'G2' + HG_str + '_N{}_Nx{}Ny{}'.format(batch_size, Nx, Ny)
+        # save normalized version
+        np.save(Pt_path + Pss_t_name, P_ss/np.sum(np.abs(P_ss)))
+        np.save(Pt_path + G2_t_name, G2/np.sum(np.abs(G2)))
 
-if save_tgt:
-    Pss_t_name = 'P_ss_HG00_N{}_Nx{}Ny{}'.format(batch_size,Nx,Ny)
-    G2_t_name = 'G2_HG00_N{}_Nx{}Ny{}'.format(batch_size,Nx,Ny)
-    # save normalized version
-    np.save(Pt_path + Pss_t_name, P_ss/np.sum(np.abs(P_ss)))
-    np.save(Pt_path + G2_t_name, G2/np.sum(np.abs(G2)))
-
-if show_res:
-    ################
-    # Plot G1 #
-    ################
-    if not DO_HG:
+    if show_res or save_res:
+        ################
+        # Plot G1 #
+        ################
         FF_position_axis = lambda dx, MaxX, k, R: np.arange(-1 / dx, 1 / dx, 1 / MaxX) * (np.pi * R / k)
         FFcoordinate_axis_Idler = 1e3 * FF_position_axis(PP_SLT.dx, PP_SLT.MaxX, Idler.k / Idler.n, R)
         FFcoordinate_axis_Signal = 1e3 * FF_position_axis(PP_SLT.dx, PP_SLT.MaxX, Signal.k / Signal.n, R)
@@ -283,82 +276,58 @@ if show_res:
     theoretical_angle = np.arccos((Pump.k - PP_SLT.poling_period) / 2 / Signal.k)
     theoretical_angle = np.arcsin(Signal.n * np.sin(theoretical_angle) / 1)  # Snell's law
 
-    P_ss /= g1_ss_normalization
+        P_ss /= g1_ss_normalization
 
-    plt.figure()
-    plt.imshow(P_ss * 1e-6, extent=extents_FFcoordinates_signal)  # AK, Dec08: Units of counts/mm^2*sec
-    plt.plot(1e3 * R * np.tan(theoretical_angle), 0, 'xw')
-    plt.xlabel(' x [mm]')
+        plt.imshow(P_ss * 1e-6, extent=extents_FFcoordinates_signal)  # AK, Dec08: Units of counts/mm^2*sec
+        plt.plot(1e3 * R * np.tan(theoretical_angle), 0, 'xw')
+        plt.xlabel(' x [mm]')
     plt.ylabel(' y [mm]')
-    plt.title('Single photo-detection probability, Far field')
-    plt.colorbar()
-    plt.show()
+        plt.title('Single photo-detection probability, Far field')
+        plt.colorbar()
+        if save_res:
+            res_name_pss = 'P_ss'
+            HG_str = make_beam_from_HG_str(Pump.hemite_dict, params)
+            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
+        if show_res:
+            plt.show()
 
-    ################
-    # Plot G2 #
-    ################
-    if DO_HG:
-        G2_unwrapped_idx_np = onp.zeros((max_mode, max_mode, max_mode, max_mode), dtype='int32')
-        G2_unwrapped_idx_np = \
-            unwrap_kron(G2_unwrapped_idx_np,
-                        onp.arange(0, max_mode * max_mode * max_mode * max_mode, dtype='int32').reshape(max_mode * max_mode, max_mode * max_mode),
-                        max_mode).reshape(max_mode * max_mode * max_mode * max_mode).astype(int)
+        ################
+        # Plot G2 #
+        ################
+        # Unwrap G2 indices
+        G2_unwrap_idx_str = 'G2_unwarp_idx/G2_unwrap_max_mode{}.npy'.format(max_mode)
+        if not os.path.exists(G2_unwrap_idx_str):
+            G2_unwrapped_idx_np = onp.zeros((max_mode, max_mode, max_mode, max_mode), dtype='int32')
+            G2_unwrapped_idx_np = \
+                unwrap_kron(G2_unwrapped_idx_np,
+                            onp.arange(0, max_mode * max_mode * max_mode * max_mode, dtype='int32').reshape(max_mode * max_mode, max_mode * max_mode),
+                            max_mode).reshape(max_mode * max_mode * max_mode * max_mode).astype(int)
 
+            np.save(G2_unwrap_idx_str, G2_unwrapped_idx_np)
+
+        else:
+        G2_unwrapped_idx_np = np.load(G2_unwrap_idx_str)
         G2_unwrapped_idx = onp.ndarray.tolist(G2_unwrapped_idx_np)
-        G2 = G2.reshape(max_mode * max_mode * max_mode * max_mode)[G2_unwrapped_idx].reshape(max_mode, max_mode, max_mode, max_mode)
+        del G2_unwrapped_idx_np
 
-        # add coincidence window
-        tau = 1e-9  # nanosec
+        G2 = G2.reshape(max_mode * max_mode * max_mode * max_mode)[G2_unwrapped_idx].reshape(max_mode, max_mode, max_mode, max_mode)
 
         # Compute and plot reduced G2
         G2_reduced = trace_it(G2, 0, 2)
         G2_reduced = G2_reduced * tau / (g1_ii_normalization * g1_ss_normalization)
 
         # plot
-        plt.figure()
         plt.imshow(G2_reduced)
         plt.title(r'$G^{(2)}$ (coincidences)')
         plt.xlabel(r'signal mode i')
         plt.ylabel(r'idle mode j')
         plt.colorbar()
-        plt.show()
-    else:
-        # Unwrap G2 indices
-        G2_unwrap_idx_str = 'G2_unwarp_idx/G2_unwrap_M{}.npy'.format(M)
-        if not os.path.exists(G2_unwrap_idx_str):
-        G2_unwrapped_idx_np = onp.zeros((M, M, M, M), dtype='int32')
-        G2_unwrapped_idx_np = \
-            unwrap_kron(G2_unwrapped_idx_np,
-                        onp.arange(0, M * M * M * M, dtype='int32').reshape(M * M, M * M),
-                        M).reshape(M * M * M * M).astype(int)
-
-        np.save(G2_unwrap_idx_str, G2_unwrapped_idx_np)
-
-    else:
-        G2_unwrapped_idx_np = np.load(G2_unwrap_idx_str)
-    G2_unwrapped_idx = onp.ndarray.tolist(G2_unwrapped_idx_np)
-    del G2_unwrapped_idx_np
-
-    G2 = G2.reshape(M * M * M * M)[G2_unwrapped_idx].reshape(M, M, M, M)
-    # Fourier coordiantes
-    dx_farfield_idler = 1e-3 * (FFcoordinate_axis_Idler[1] - FFcoordinate_axis_Idler[0])
-    dx_farfield_signal = 1e-3 * (FFcoordinate_axis_Signal[1] - FFcoordinate_axis_Signal[0])
-
-    # add coincidence window
-    tau = 1e-9  # nanosec
-
-    # Compute and plot reduced G2
-    G2_reduced = trace_it(G2, 1, 3) * dx_farfield_idler * dx_farfield_signal
-    G2_reduced = G2_reduced * tau / (g1_ii_normalization * g1_ss_normalization)
-
-        # plot
-        plt.figure()
-        plt.imshow(1e-6 * G2_reduced, extent=extents_FFcoordinates_signal)
-        plt.title(r'$G^{(2)}$ (coincidences)')
-        plt.xlabel(r'$x_i$ [mm]')
-        plt.ylabel(r'$x_s$ [mm]')
-    plt.colorbar()
-    plt.show()
+        if save_res:
+            res_name_g2 = 'G2'
+            HG_str = make_beam_from_HG_str(Pump.hemite_dict, params)
+            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
+        if show_res:
+            plt.show()
 
 print("--- running time: %s seconds ---" % (time.time() - start_time))
 exit()

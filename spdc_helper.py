@@ -342,6 +342,14 @@ def make_beam_from_HG(hermite_dict, HG_parameters, PRINT=0):
     #     print(print_str)
     return final
 
+def make_beam_from_HG_str(hermite_dict, HG_parameters):
+    if len(HG_parameters.shape) > 1:
+        HG_parameters = HG_parameters[0]
+    print_str = ''
+    for n, (mode_x, _) in enumerate(hermite_dict.items()):
+        if HG_parameters[n]:
+            print_str = print_str + '_' + str(HG_parameters[n]) + 'HG' + mode_x
+    return print_str
 
 '''
 unwrap_kron takes a Kronicker product of size M^2 x M^2 and turns is into an
@@ -376,7 +384,7 @@ Both are matrices of the same size
 '''
 
 
-def project(projected_state , A, minval=0):
+def project(projected_state, A, minval=0):
     projection      = np.sum(np.conj(projected_state)*(A))
     normalization1  = np.sum(np.abs(A**2))
     normalization2  = np.sum(np.abs(projected_state**2))
