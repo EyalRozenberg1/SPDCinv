@@ -347,8 +347,9 @@ def make_beam_from_HG_str(hermite_dict, HG_parameters):
         HG_parameters = HG_parameters[0]
     print_str = ''
     for n, (mode_x, _) in enumerate(hermite_dict.items()):
-        if HG_parameters[n]:
-            print_str = print_str + '_' + str(HG_parameters[n]) + 'HG' + mode_x
+        if HG_parameters[n] > 1e-2:
+            HG_str = '_{:.2}'.format(HG_parameters[n])
+            print_str = print_str + HG_str + 'HG' + mode_x
     return print_str
 
 '''

@@ -179,8 +179,8 @@ def update(opt_state, i, x, P_ss_t, G2t):
 
 if learn_mode:
     # load target P, G2
-    Pss_t_load = 'P_ss_HG00_N{}_Nx{}Ny{}'.format(batch_size, Nx, Ny)
-    G2_t_load  = 'G2_HG00_N{}_Nx{}Ny{}'.format(batch_size, Nx, Ny)
+    Pss_t_load = 'P_ss_1.0HG00_N2_Nx80Ny80'
+    G2_t_load  = 'G2_1.0HG00_N2_Nx80Ny80'
     P_ss_t  = pmap(lambda x: np.load(Pt_path + Pss_t_load + '.npy'))(np.arange(num_devices))
     G2t     = pmap(lambda x: np.load(Pt_path + G2_t_load + '.npy'))(np.arange(num_devices))
 
@@ -287,7 +287,10 @@ if save_res or save_tgt or show_res:
         if save_res:
             res_name_pss = 'P_ss'
             HG_str = make_beam_from_HG_str(Pump.hemite_dict, params)
-            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
+            if learn_mode:
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_N{}_Nx{}Ny{}_{}.png'.format(batch_size, Nx, Ny, loss_type))
+            else:
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
         if show_res:
             plt.show()
 
@@ -325,7 +328,10 @@ if save_res or save_tgt or show_res:
         if save_res:
             res_name_g2 = 'G2'
             HG_str = make_beam_from_HG_str(Pump.hemite_dict, params)
-            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
+            if learn_mode:
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}_{}.png'.format(batch_size, Nx, Ny, loss_type))
+            else:
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
         if show_res:
             plt.show()
 
