@@ -179,8 +179,8 @@ def update(opt_state, i, x, P_ss_t, G2t):
 
 if learn_mode:
     # load target P, G2
-    Pss_t_load = 'P_ss_1.0HG00_N2_Nx80Ny80'
-    G2_t_load  = 'G2_1.0HG00_N2_Nx80Ny80'
+    Pss_t_load = 'P_ss_1.0HG00_N100_Nx80Ny80'
+    G2_t_load  = 'G2_1.0HG00_N100_Nx80Ny80'
     P_ss_t  = pmap(lambda x: np.load(Pt_path + Pss_t_load + '.npy'))(np.arange(num_devices))
     G2t     = pmap(lambda x: np.load(Pt_path + G2_t_load + '.npy'))(np.arange(num_devices))
 
