@@ -80,12 +80,12 @@ class Beam:
         self.crystal_dx = crystal.dx
         self.crystal_dy = crystal.dy
         if max_mode:
-            self.hemite_dict = HermiteBank(lam, self.waist, self.waist, max_mode, crystal.x, crystal.y)
+            self.hermite_arr, self.hermite_str = HermiteBank(lam, self.waist, self.waist, max_mode, crystal.x, crystal.y)
             self.profile     = []
 
     def create_profile(self, HG_parameters, Nb):
         self.profile = HG_parameters
-        E_temp       = np.tile(make_beam_from_HG(self.hemite_dict, HG_parameters), (Nb, 1, 1))
+        E_temp       = np.tile(make_beam_from_HG(self.hermite_arr, HG_parameters), (Nb, 1, 1))
         self.E       = fix_power(E_temp, self.power, self.n, self.crystal_dx, self.crystal_dy)
 
 '''
@@ -129,13 +129,8 @@ def PP_crystal_slab(delta_k, z, phi):
 def PP_crystal_slab_2D(delta_k, z, phi):
     return np.sign(np.cos(np.abs(delta_k) * z + phi))
 
-def Poling_profile(phi_parameters, x, MaxX, phi_scale=1):
-    NormX = phi_scale*x/MaxX
-    n = 0
-    phi = 0
-    for coeff in phi_parameters:
-        phi = phi + coeff * NormX ** n
-        n = n + 1
+def Poling_profile(phi_parameters, taylor_series):
+    phi = (phi_parameters[:, None] * taylor_series).sum(0)
     return phi
 
 '''
@@ -318,7 +313,7 @@ def HermiteBank(lam, W0x, W0y, max_mode, x, y):
             Unx = hermite_dictx[str(n)]
             hermite_dict[str(n) + str(m)] = np.dot(Uny.reshape(len(Unx), 1), Unx.reshape(1, len(Unx)))
 
-    return hermite_dict
+    return np.array(list(hermite_dict.values())), [*hermite_dict]
 
 
 '''
@@ -327,25 +322,17 @@ hermite_dict  - a dictionary of HG modes. ordered in dictionary order (00,01,10,
 HG_parameters - the wieght of each mode in hermite_dict
 these two have to have the same length!
 '''
-def make_beam_from_HG(hermite_dict, HG_parameters, PRINT=0):
-    final = 0
-    # print_str = str([])
-    if len(HG_parameters) != len(hermite_dict):
+def make_beam_from_HG(hermite_arr, HG_parameters):
+    if len(HG_parameters) != len(hermite_arr):
         print('WRONG NUMBER OF PARAMETERS!!!')
         return
-    for n, (mode_x, HG) in enumerate(hermite_dict.items()):
-        final = final + HG_parameters[n] * HG
-        # if HG_parameters[n]:
-        #     print_str = print_str + ' + ' + str(HG_parameters[n]) + 'HG' + mode_x
-    # if PRINT:
-    #     print(print_str)
-    return final
+    return (HG_parameters[:,None, None]*hermite_arr).sum(0)
 
-def make_beam_from_HG_str(hermite_dict, HG_parameters):
+def make_beam_from_HG_str(hermite_str, HG_parameters):
     if len(HG_parameters.shape) > 1:
         HG_parameters = HG_parameters[0]
     print_str = ''
-    for n, (mode_x, _) in enumerate(hermite_dict.items()):
+    for n, mode_x in enumerate(hermite_str):
         if HG_parameters[n] > 1e-2:
             HG_str = '_{:.2}'.format(HG_parameters[n])
             print_str = print_str + HG_str + 'HG' + mode_x
@@ -379,32 +366,29 @@ def trace_it(G, dim1, dim2):
 project: projects some state A to projected_state
 Both are matrices of the same size
 '''
+
 def project(projected_state, A, minval=0):
-    projection      = np.sum(np.conj(projected_state)*(A))
-    normalization1  = np.sum(np.abs(A**2))
-    normalization2  = np.sum(np.abs(projected_state**2))
-    projection      = projection/np.sqrt(normalization1*normalization2)
+    Nxx2            = A.shape[1]**2
+    N               = A.shape[0]
+    Nh              = projected_state.shape[0]
+    projection      = (np.conj(projected_state)*A).reshape(Nh, N, Nxx2).sum(2)
+    normalization1  = np.abs(A**2).reshape(N, Nxx2).sum(1)
+    normalization2  = np.abs(projected_state**2).reshape(Nh, Nxx2).sum(1)
+    projection      = projection / np.sqrt(normalization1[None,:]*normalization2[:,None])
     cond1 = np.abs(np.real(projection)) <= np.abs(minval)
     cond2 = np.abs(np.imag(projection)) <= np.abs(minval)
     projection = cond1*(cond2*0+(1-cond2)*1j*np.imag(projection)) + (1-cond1)*(np.real(projection))
     return projection
-
-
 '''
 Decompose a state A into modes defined in the dictionary
 '''
-def decompose(A, hermite_dict, N):
-    decomopsition = []
-    minval1 = np.abs(project(hermite_dict['00'], hermite_dict['02']))
-    minval2 = np.abs(project(hermite_dict['00'], hermite_dict['01']))
-    minval = min(minval1, minval2) * 1.1
-    print_str = str([])
-
-    for n, (mode_x, HG) in enumerate(hermite_dict.items()):
-        projection = np.array([project(HG, A[i], minval) for i in range(N)])
-        decomopsition.append(projection)
-
-    return np.transpose(np.array(decomopsition))
+def decompose(A, hermite_arr, N, m):
+        minval1 = np.abs(project(hermite_arr[0][None, :], hermite_arr[2][None, :]))
+        minval2 = np.abs(project(hermite_arr[0][None, :], hermite_arr[1][None, :]))
+        minval = min(minval1, minval2) * 1.1
+        HG = hermite_arr[:, None]
+        projection = project(HG, A, minval)
+        return np.transpose(projection).reshape(N, m, m)
 
 ''' 
 This function takes a field A and normalizes in to have the power indicated 

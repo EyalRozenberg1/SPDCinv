@@ -70,7 +70,7 @@ max_mode = 10
 n_coeff  = max_mode**2  # coefficients of beam-basis functions
 Pump     = Beam(532e-9, PP_SLT, Temperature, 50e-6, 1e-3, max_mode)  # wavelength, crystal, tmperature,waist,power, maxmode
 Signal   = Beam(1064e-9, PP_SLT, Temperature, np.sqrt(2)*Pump.waist, 1, max_mode)
-Idler    = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature, np.sqrt(2)*Pump.waist, 1, max_mode)
+Idler    = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature, np.sqrt(2)*Pump.waist, 1)
 
 # phase mismatch
 delta_k = Pump.k - Signal.k - Idler.k
@@ -105,7 +105,10 @@ phi_parameters = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])  # no_tr_phase
 # phi_parameters = [0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0]  # Lens
 # phi_parameters = [0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0]  # cube?
 # phi_parameters = [12, 0, -48, 0, 16, 0, 0, 0, 0, 0, 0]  # Hermite4
-# phi_parameters = [-120, 0, 720, 0, -480, 0, 64, 0, 0, 0, 0]  # Hermite6
+# phi_parameters = np.array([-120, 0, 720, 0, -480, 0, 64, 0, 0, 0, 0])  # Hermite6
+phi_scale      = 1
+NormX          = PP_SLT.x / PP_SLT.MaxX
+taylor_series  = np.array([NormX**i for i in range(len(phi_parameters))])
 
 
 print("--- the parameters initiated are: {} ---".format(params[0]))
@@ -124,18 +127,18 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     Pump.create_profile(params, N)
 
     # current poling profile
-    phi = Poling_profile(phi_parameters, PP_SLT.x, PP_SLT.MaxX)
+    phi = Poling_profile(phi_parameters, taylor_series)
 
     # Propagate through the crystal:
     crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT, phi)
 
 
-        E_s_out_HG = np.reshape(decompose(Siganl_field.E_out, Signal.hemite_dict, N), (N, max_mode, max_mode))
-        E_i_out_HG = np.reshape(decompose(Idler_field.E_out, Signal.hemite_dict, N), (N, max_mode, max_mode))
-    E_i_vac_HG = np.reshape(decompose(Idler_field.E_vac, Signal.hemite_dict, N), (N, max_mode, max_mode))
+    E_s_out_HG = decompose(Siganl_field.E_out, Signal.hermite_arr, N, max_mode)
+    E_i_out_HG = decompose(Idler_field.E_out, Signal.hermite_arr, N, max_mode)
+    E_i_vac_HG = decompose(Idler_field.E_vac, Signal.hermite_arr, N, max_mode)
     # say there are no higher modes by normalizing the power
-        E_s_out = fix_power1(E_s_out_HG, Siganl_field.E_out, Signal, PP_SLT)
-        E_i_out = fix_power1(E_i_out_HG, Idler_field.E_out, Signal, PP_SLT)
+    E_s_out = fix_power1(E_s_out_HG, Siganl_field.E_out, Signal, PP_SLT)
+    E_i_out = fix_power1(E_i_out_HG, Idler_field.E_out, Signal, PP_SLT)
     E_i_vac = fix_power1(E_i_vac_HG, Idler_field.E_vac, Signal, PP_SLT)
 
     "Coumpute k-space far field using FFT:"
@@ -144,13 +147,13 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     # FFT:
     E_s_out_k = FarFieldNorm_signal * Fourier(Siganl_field.E_out)
 
-    G1_ss_k      = (np.array([kron(np.conj(E_s_out_k[i]), E_s_out_k[i]) for i in range(N)]) / batch_size).sum(0)
-    G1_ss        = (np.array([kron(np.conj(E_s_out[i]), E_s_out[i]) for i in range(N)]) / batch_size).sum(0)
-    G1_ii        = (np.array([kron(np.conj(E_i_out[i]), E_i_out[i]) for i in range(N)]) / batch_size).sum(0)
-    G1_si        = (np.array([kron(np.conj(E_i_out[i]), E_s_out[i]) for i in range(N)]) / batch_size).sum(0)
-    G1_si_dagger = (np.array([kron(np.conj(E_s_out[i]), E_i_out[i]) for i in range(N)]) / batch_size).sum(0)
-    Q_si         = (np.array([kron(E_i_vac[i], E_s_out[i]) for i in range(N)]) / batch_size).sum(0)
-    Q_si_dagger  = (np.array([kron(np.conj(E_s_out[i]), np.conj(E_i_vac[i])) for i in range(N)]) / batch_size).sum(0)
+    G1_ss_k      = (np.conj(E_s_out_k)[:,:, None, :, None] * E_s_out_k[:,None, :, None, :]).sum(0).reshape(Nx**2, Ny**2) / batch_size
+    G1_ss        = (np.conj(E_s_out)[:,:, None, :, None] * E_s_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
+    G1_ii        = (np.conj(E_i_out)[:,:, None, :, None] * E_i_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
+    G1_si        = (np.conj(E_i_out)[:,:, None, :, None] * E_s_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
+    G1_si_dagger = (np.conj(E_s_out)[:,:, None, :, None] * E_i_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
+    Q_si         = (E_i_vac[:,:, None, :, None] * E_s_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
+    Q_si_dagger  = (np.conj(E_s_out)[:,:, None, :, None] * np.conj(E_i_vac)[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
 
     return G1_ss_k, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
 
@@ -175,7 +178,8 @@ def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 targ
         kl_l = (1-alpha)*kl_loss(P_ss_t, P_ss, eps=1e-7)+alpha*kl_loss(G2t, G2, eps=1)
         return kl_l + gamma * l1_l
     if loss_type is 'wass':
-        return 1e7*sinkhorn_loss(P_ss, P_ss_t, M, eps=1e-3, max_iters=100, stop_thresh=None)
+        return (1 - alpha) * sinkhorn_loss(P_ss, P_ss_t, M, eps=1e-3, max_iters=100, stop_thresh=None) + \
+               alpha * sinkhorn_loss(G2, G2t, M, eps=1e-3, max_iters=100, stop_thresh=None)
     if loss_type is 'wass_kl':
         return 1e7*sinkhorn_loss(P_ss, P_ss_t, M, eps=1e-3, max_iters=100, stop_thresh=None) + kl_loss(G2t, G2, eps=1)
     else:
@@ -263,9 +267,9 @@ if save_res or save_tgt or show_res:
     G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
 
     if save_tgt:
-        HG_str = make_beam_from_HG_str(Pump.hemite_dict, params)
-        Pss_t_name = 'P_ss' + HG_str + '_N{}_Nx{}Ny{}'.format(batch_size, Nx, Ny)
-        G2_t_name = 'G2' + HG_str + '_N{}_Nx{}Ny{}'.format(batch_size, Nx, Ny)
+        HG_str = make_beam_from_HG_str(Pump.hermite_str, params)
+        Pss_t_name = 'P_ss' + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
+        G2_t_name = 'G2' + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
         # save normalized version
         np.save(Pt_path + Pss_t_name, P_ss/np.sum(np.abs(P_ss)))
         np.save(Pt_path + G2_t_name, G2/np.sum(np.abs(G2)))
@@ -298,11 +302,11 @@ if save_res or save_tgt or show_res:
         plt.colorbar()
         if save_res:
             res_name_pss = 'P_ss'
-            HG_str = make_beam_from_HG_str(Pump.hemite_dict, params)
+            HG_str = make_beam_from_HG_str(Pump.hermite_str, params)
             if learn_mode:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_N{}_Nx{}Ny{}_{}.png'.format(batch_size, Nx, Ny, loss_type))
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
             else:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
         if show_res:
             plt.show()
 
@@ -339,11 +343,11 @@ if save_res or save_tgt or show_res:
         plt.colorbar()
         if save_res:
             res_name_g2 = 'G2'
-            HG_str = make_beam_from_HG_str(Pump.hemite_dict, params)
+            HG_str = make_beam_from_HG_str(Pump.hermite_str, params)
             if learn_mode:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}_{}.png'.format(batch_size, Nx, Ny, loss_type))
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
             else:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
         if show_res:
             plt.show()
 
@@ -353,16 +357,16 @@ if save_res or save_tgt or show_res:
             phi_parameters_ = phi_parameters[0]
         else:
             phi_parameters_ = phi_parameters
-        Phi = Poling_profile(phi_parameters_, XX, PP_SLT.MaxX)
+        Phi = Poling_profile(phi_parameters_, taylor_series)
         plt.imshow(np.sign(np.cos(PP_SLT.poling_period * ZZ + Phi)), aspect='auto')
         plt.xlabel(' x [mm]')
         plt.ylabel(' z [mm]')
         plt.title('Crystal\'s poling pattern')
         plt.colorbar()
         if learn_mode:
-            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_' + poling_str + '_N{}_Nx{}Ny{}_{}.png'.format(batch_size, Nx, Ny, loss_type))
+            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_' + poling_str + '_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
         else:
-            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_' + poling_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
+            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_' + poling_str + '_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
         if show_res:
             plt.show()
 
