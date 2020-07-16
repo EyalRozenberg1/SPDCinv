@@ -219,9 +219,20 @@ create the crystal slab at point z in the crystal, for poling period 2pi/delta_k
 '''
 
 
-def PP_crystal_slab(delta_k, z):
+def PP_crystal_slab(delta_k, z, phi):
     return np.sign(np.cos(np.abs(delta_k) * z))
 
+def PP_crystal_slab_2D(delta_k, z, phi):
+    return np.sign(np.cos(np.abs(delta_k) * z + phi))
+
+def Poling_profile(phi_parameters, phi_scale, x, MaxX):
+    NormX = phi_scale*x/MaxX
+    n = 0
+    phi = 0
+    for coeff in phi_parameters:
+        phi = phi + coeff * NormX ** n
+        n = n + 1
+    return phi
 
 '''
 Free space propagation of a Gaussian beam
@@ -285,7 +296,7 @@ propagate through crystal using split step Fourier for 4 fields: e_out and E_vac
 '''
 
 
-def crystal_prop(Pump, Siganl_field, Idler_field, crystal, gaussian = 1):
+def crystal_prop(Pump, Siganl_field, Idler_field, crystal, phi, gaussian = 1):
     for z in crystal.z:
         
         
@@ -300,7 +311,7 @@ def crystal_prop(Pump, Siganl_field, Idler_field, crystal, gaussian = 1):
         else:
             E_pump = Gaussian_beam_calc(Pump, crystal, z)
         # crystal slab:
-        PP = crystal.slab(crystal.poling_period, z)
+        PP = crystal.slab(crystal.poling_period, z, phi)
 
         # cooupled wave equations - split step
         # signal:

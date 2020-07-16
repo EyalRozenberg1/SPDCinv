@@ -44,7 +44,7 @@ plt.close('all');
 ###########################################
 # initialize crystal and structure arrays
 d33 = 23.4e-12  # in meter/Volt.[LiNbO3]
-PP_SLT = Crystal(5e-6, 5e-6, 1e-6, 300e-6, 300e-6, 20e-3, nz_MgCLN_Gayer, PP_crystal_slab,
+PP_SLT = Crystal(5e-6, 5e-6, 1e-6, 300e-6, 300e-6, 20e-3, nz_MgCLN_Gayer, PP_crystal_slab_2D,
                  d33)  # dx,dy,dz,MaxX,MaxY,MaxZ,Ref_ind,slab_function
 R = 0.1  # distance to far-field screenin meters
 Temperature = 50
@@ -62,9 +62,30 @@ pump_parameters = np.zeros(max_mode**2)
 pump_parameters[1] = 1
 Pump.create_profile(pump_parameters, PP_SLT)
 
+#phi_parameters = [0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0] #linear shift
+#phi_parameters = [0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0] #Lens
+#phi_parameters = [0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0] #cube?
+phi_parameters = [12, 0, -48, 0, 16, 0, 0, 0, 0, 0, 0] #Hermite4
+#phi_parameters = [-120, 0, 720, 0, -480, 0, 64, 0, 0, 0, 0] #Hermite6
+
+phi_scale = 1
+phi = Poling_profile(phi_parameters, phi_scale, PP_SLT.x, PP_SLT.MaxX)
+
 # phase mismatch
 delta_k = Pump.k - Signal.k - Idler.k
-PP_SLT.poling_period = 1 * delta_k
+PP_SLT.poling_period = 1.004 * delta_k
+
+
+#plot crystal pattern
+XX, ZZ = np.meshgrid(PP_SLT.x, PP_SLT.z)
+Phi = Poling_profile(phi_parameters, phi_scale, XX, PP_SLT.MaxX)
+plt.figure()
+plt.imshow(np.sign(np.cos(PP_SLT.poling_period*ZZ+Phi)), aspect='auto')
+plt.xlabel(' x [mm]')
+plt.ylabel(' z [mm]')
+plt.title('Crystal')
+plt.colorbar()
+plt.show()
 
 # flags
 IS_INDISTIGUISHABLE = 0  # Flag for being indistiguishable or not
@@ -161,7 +182,7 @@ else:
         Idler_field = Field(Idler, PP_SLT)
 
         # Propagate through the crystal:
-        crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT,IS_GAUSSIAN)
+        crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT, phi)
 
         # Coumpute k-space far field using FFT:
         # normalization factors
