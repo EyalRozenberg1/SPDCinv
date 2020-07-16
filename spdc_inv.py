@@ -78,7 +78,6 @@ PP_SLT.poling_period = 1.0 * delta_k
 # set coincidence window
 tau = 1e-9  # [nanosec]
 
-
 "Interaction Parameters"
 Nx = len(PP_SLT.x)
 Ny = len(PP_SLT.y)
@@ -91,6 +90,7 @@ g1_ii_normalization = G1_Normalization(Idler.w)
 # params      = np.array(params_coef[:, 0] + 1j*params_coef[:, 1])
 params = np.zeros(n_coeff)
 params = index_update(params, 0, 1.0)
+# params = index_update(params, 3, 1.0)
 params = np.divide(params, la.norm(params))
 
 params_gt = np.zeros(n_coeff)
@@ -98,6 +98,15 @@ params_gt = index_update(params_gt, 0, 1.0)
 params_gt = np.divide(params_gt, la.norm(params_gt))
 # replicate parameters for gpus
 params = pmap(lambda x: params)(np.arange(num_devices))
+
+poling_str = 'no_tr_phase'
+phi_parameters = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])  # no_tr_phase
+# phi_parameters = np.array([0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0])  # linear shift
+# phi_parameters = [0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0]  # Lens
+# phi_parameters = [0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0]  # cube?
+# phi_parameters = [12, 0, -48, 0, 16, 0, 0, 0, 0, 0, 0]  # Hermite4
+# phi_parameters = [-120, 0, 720, 0, -480, 0, 64, 0, 0, 0, 0]  # Hermite6
+
 
 print("--- the parameters initiated are: {} ---".format(params[0]))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
@@ -114,8 +123,11 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     # current pump structure
     Pump.create_profile(params, N)
 
+    # current poling profile
+    phi = Poling_profile(phi_parameters, PP_SLT.x, PP_SLT.MaxX)
+
     # Propagate through the crystal:
-    crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT)
+    crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT, phi)
 
 
         E_s_out_HG = np.reshape(decompose(Siganl_field.E_out, Signal.hemite_dict, N), (N, max_mode, max_mode))
@@ -332,6 +344,25 @@ if save_res or save_tgt or show_res:
                 plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}_{}.png'.format(batch_size, Nx, Ny, loss_type))
             else:
                 plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
+        if show_res:
+            plt.show()
+
+        # crystal's pattern
+        XX, ZZ = np.meshgrid(PP_SLT.x, PP_SLT.z)
+        if len(phi_parameters.shape) > 1:
+            phi_parameters_ = phi_parameters[0]
+        else:
+            phi_parameters_ = phi_parameters
+        Phi = Poling_profile(phi_parameters_, XX, PP_SLT.MaxX)
+        plt.imshow(np.sign(np.cos(PP_SLT.poling_period * ZZ + Phi)), aspect='auto')
+        plt.xlabel(' x [mm]')
+        plt.ylabel(' z [mm]')
+        plt.title('Crystal\'s poling pattern')
+        plt.colorbar()
+        if learn_mode:
+            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_' + poling_str + '_N{}_Nx{}Ny{}_{}.png'.format(batch_size, Nx, Ny, loss_type))
+        else:
+            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_' + poling_str + '_N{}_Nx{}Ny{}.png'.format(batch_size, Nx, Ny))
         if show_res:
             plt.show()
 

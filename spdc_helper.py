@@ -52,7 +52,7 @@ class Crystal:
         self.y = np.arange(-MaxY, MaxY, dy)  # y axis, length 2*MaxY  (transverse)
         self.z = np.arange(-MaxZ / 2, MaxZ / 2, dz)  # z axis, length MaxZ (propagation)
         self.ctype = nz_MgCLN_Gayer  # refractive index function
-        self.slab = PP_crystal_slab
+        self.slab = PP_crystal_slab_2D
         self.d = d
         self.poling_period = period
 
@@ -96,8 +96,6 @@ initialize E_out and E_vac, for a given beam (class Beam) and crystal (class Cry
     E_vac - as in the paper, the vacuum field, initilized as gaussian noise
     kappa - coupling constant 
 '''
-
-
 class Field:
     def __init__(self, beam, crystal, vac_rnd, N):
         Nx = len(crystal.x)
@@ -125,9 +123,20 @@ def random_params(m, key, scale=1):
 Periodically poled crystal slab
 create the crystal slab at point z in the crystal, for poling period 2pi/delta_k
 '''
-def PP_crystal_slab(delta_k, z):
+def PP_crystal_slab(delta_k, z, phi):
     return np.sign(np.cos(np.abs(delta_k) * z))
 
+def PP_crystal_slab_2D(delta_k, z, phi):
+    return np.sign(np.cos(np.abs(delta_k) * z + phi))
+
+def Poling_profile(phi_parameters, x, MaxX, phi_scale=1):
+    NormX = phi_scale*x/MaxX
+    n = 0
+    phi = 0
+    for coeff in phi_parameters:
+        phi = phi + coeff * NormX ** n
+        n = n + 1
+    return phi
 
 '''
 Refractive index for MgCLN, based on Gayer et al, APB 2008
@@ -151,9 +160,8 @@ def nz_MgCLN_Gayer(lam, T):
 '''
 Crystal propagation
 propagate through crystal using split step Fourier for 4 fields: e_out and E_vac, signal and idler.
-
 '''
-def crystal_prop(Pump, Siganl_field, Idler_field, crystal):
+def crystal_prop(Pump, Siganl_field, Idler_field, crystal, phi):
     for z in crystal.z:
         # propagate
         x  = crystal.x
@@ -161,10 +169,10 @@ def crystal_prop(Pump, Siganl_field, Idler_field, crystal):
         dz = crystal.dz
 
         # pump beam:
-        E_pump = propagate(Pump.E, x ,y, Pump.k, z) * np.exp(1j * Pump.k * z)
+        E_pump = propagate(Pump.E, x, y, Pump.k, z) * np.exp(1j * Pump.k * z)
 
         # crystal slab:
-        PP = crystal.slab(crystal.poling_period, z)
+        PP = crystal.slab(crystal.poling_period, z, phi)
 
         # cooupled wave equations - split step
         # signal:
@@ -220,7 +228,6 @@ Free Space propagation using the free space transfer function
 The output is the propagated field.
 Using CGS, or MKS, Boyd 2nd eddition       
 '''
-
 def propagate(A, x, y, k, dz):
     dx = np.abs(x[1] - x[0])
     dy = np.abs(y[1] - y[0])
@@ -246,8 +253,6 @@ def propagate(A, x, y, k, dz):
 '''
 Hermite polynomial of rank n Hn(x)
 '''
-
-
 def HermiteP(n, x):
     if n == 0:
         return 1
@@ -269,8 +274,6 @@ recives:
       - P  = the total power of the beam. If this is not given then it is
        set to 1W (all in Air).
 '''
-
-
 def Hermite_gause2Dxy(lam, W0x, W0y, n, m, z, x, y):
     W0 = np.sqrt(2 * W0x ** 2)
     k = 2 * np.pi / lam
@@ -301,8 +304,6 @@ def Hermite_gause2Dxy(lam, W0x, W0y, n, m, z, x, y):
 '''
 HemiteBank returns a dictionary of Hermite gausee
 '''
-
-
 def HermiteBank(lam, W0x, W0y, max_mode, x, y):
     hermite_dictx = {}
     hermite_dicty = {}
@@ -326,8 +327,6 @@ hermite_dict  - a dictionary of HG modes. ordered in dictionary order (00,01,10,
 HG_parameters - the wieght of each mode in hermite_dict
 these two have to have the same length!
 '''
-
-
 def make_beam_from_HG(hermite_dict, HG_parameters, PRINT=0):
     final = 0
     # print_str = str([])
@@ -352,12 +351,11 @@ def make_beam_from_HG_str(hermite_dict, HG_parameters):
             print_str = print_str + HG_str + 'HG' + mode_x
     return print_str
 
+
 '''
 unwrap_kron takes a Kronicker product of size M^2 x M^2 and turns is into an
 M x M x M x M array. It is used only for illustration and not during the learning
 '''
-
-
 def unwrap_kron(G, C, M):
     for i in range(M):
         for j in range(M):
@@ -371,8 +369,6 @@ def unwrap_kron(G, C, M):
 TRACE_IT takes an M x M x M x M array representing a Kronecker product, 
 and traces over 2 of its dimensions
 '''
-
-
 def trace_it(G, dim1, dim2):
     C = np.sum(G, axis=dim1)  # trace over dimesnion dim1
     C = np.sum(C, axis=dim2 - 1)  # trace over dimesnion dim2
@@ -383,8 +379,6 @@ def trace_it(G, dim1, dim2):
 project: projects some state A to projected_state
 Both are matrices of the same size
 '''
-
-
 def project(projected_state, A, minval=0):
     projection      = np.sum(np.conj(projected_state)*(A))
     normalization1  = np.sum(np.abs(A**2))
@@ -399,8 +393,6 @@ def project(projected_state, A, minval=0):
 '''
 Decompose a state A into modes defined in the dictionary
 '''
-
-
 def decompose(A, hermite_dict, N):
     decomopsition = []
     minval1 = np.abs(project(hermite_dict['00'], hermite_dict['02']))
@@ -417,8 +409,6 @@ def decompose(A, hermite_dict, N):
 ''' 
 This function takes a field A and normalizes in to have the power indicated 
 '''
-
-
 def fix_power(A, power, n, dx, dy):
     output = A * np.sqrt(power) / np.sqrt(Power2D(A, n, dx, dy))
     return output
