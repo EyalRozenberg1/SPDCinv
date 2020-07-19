@@ -1,6 +1,5 @@
 from __future__ import print_function, division, absolute_import
 from jax import value_and_grad, pmap, lax
-from jax.numpy import kron
 from jax.numpy import linalg as la
 from spdc_helper import *
 from jax.experimental import optimizers
@@ -268,8 +267,8 @@ if save_res or save_tgt or show_res:
 
     if save_tgt:
         HG_str = make_beam_from_HG_str(Pump.hermite_str, params)
-        Pss_t_name = 'P_ss' + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
-        G2_t_name = 'G2' + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
+        Pss_t_name = 'P_ss' + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
+        G2_t_name = 'G2' + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
         # save normalized version
         np.save(Pt_path + Pss_t_name, P_ss/np.sum(np.abs(P_ss)))
         np.save(Pt_path + G2_t_name, G2/np.sum(np.abs(G2)))
@@ -304,9 +303,9 @@ if save_res or save_tgt or show_res:
             res_name_pss = 'P_ss'
             HG_str = make_beam_from_HG_str(Pump.hermite_str, params)
             if learn_mode:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
             else:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
         if show_res:
             plt.show()
 
@@ -345,9 +344,9 @@ if save_res or save_tgt or show_res:
             res_name_g2 = 'G2'
             HG_str = make_beam_from_HG_str(Pump.hermite_str, params)
             if learn_mode:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
             else:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
+                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
         if show_res:
             plt.show()
 
@@ -364,9 +363,9 @@ if save_res or save_tgt or show_res:
         plt.title('Crystal\'s poling pattern')
         plt.colorbar()
         if learn_mode:
-            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_' + poling_str + '_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
+            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_{}_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
         else:
-            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_' + poling_str + '_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
+            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_{}_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
         if show_res:
             plt.show()
 
