@@ -55,7 +55,7 @@ assert batch_size % num_devices == 0, "The number of examples within a batch sho
 "Interaction Initialization"
 # Structure arrays - initialize crystal and structure arrays
 d33         = 23.4e-12  # in meter/Volt.[LiNbO3]
-PP_SLT      = Crystal(5e-6, 5e-6, 1e-5, 200e-6, 200e-6, 5e-3, d33)
+PP_SLT      = Crystal(10e-6, 10e-6, 1e-5, 200e-6, 200e-6, 5e-3, d33)
 R           = 0.1  # distance to far-field screen in meters
 Temperature = 50
 M           = len(PP_SLT.x)  # simulation size
@@ -85,60 +85,69 @@ Ny = len(PP_SLT.y)
 g1_ss_normalization = G1_Normalization(Signal.w)
 g1_ii_normalization = G1_Normalization(Idler.w)
 
-# params_coef = random.normal(random.PRNGKey(0), (n_coeff, 2))
-# params      = np.array(params_coef[:, 0] + 1j*params_coef[:, 1])
-params = np.zeros(n_coeff)
-params = index_update(params, 0, 1.0)
-# params = index_update(params, 3, 1.0)
-params = np.divide(params, la.norm(params))
+# coeffs_rand = random.normal(random.PRNGKey(0), (n_coeff, 2))
+# coeffs      = np.array(coeffs_rand[:, 0] + 1j*coeffs_rand[:, 1])
+coeffs = np.zeros(n_coeff)
+coeffs = index_update(coeffs, 2, 1.0)
+coeffs = index_update(coeffs, 3, 1.0)
+coeffs = index_update(coeffs, 14, 1.0)
+coeffs = index_update(coeffs, 35, 1.0)
+coeffs = np.divide(coeffs, la.norm(coeffs))
 
-params_gt = np.zeros(n_coeff)
-params_gt = index_update(params_gt, 0, 1.0)
-params_gt = np.divide(params_gt, la.norm(params_gt))
+coeffs_gt = np.zeros(n_coeff)
+coeffs_gt = index_update(coeffs_gt, 0, 1.0)
+coeffs_gt = np.divide(coeffs_gt, la.norm(coeffs_gt))
 # replicate parameters for gpus
-params = pmap(lambda x: params)(np.arange(num_devices))
+# coeffs = pmap(lambda x: coeffs)(np.arange(num_devices))
 
 poling_str = 'no_tr_phase'
-phi_parameters = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])  # no_tr_phase
+phi_parameters = np.array([-120.0, 0, 720, 0, -480, 0, 64, 0, 0, 0, 0])  # no_tr_phase
 # phi_parameters = np.array([0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0])  # linear shift
 # phi_parameters = [0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0]  # Lens
 # phi_parameters = [0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0]  # cube?
 # phi_parameters = [12, 0, -48, 0, 16, 0, 0, 0, 0, 0, 0]  # Hermite4
 # phi_parameters = np.array([-120, 0, 720, 0, -480, 0, 64, 0, 0, 0, 0])  # Hermite6
+phi_parameters_gt = np.array([0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])  # no_tr_phase
 phi_scale      = 1
 NormX          = PP_SLT.x / PP_SLT.MaxX
 taylor_series  = np.array([NormX**i for i in range(len(phi_parameters))])
+Poling = Poling_profile(taylor_series)
 
+# phi_parameters = pmap(lambda x: phi_parameters)(np.arange(num_devices))
+params = np.concatenate((coeffs, phi_parameters))
+params = pmap(lambda x: params)(np.arange(num_devices))
 
-print("--- the parameters initiated are: {} ---".format(params[0]))
+print("--- the HG coefficients initiated are: {} ---\n".format(coeffs))
+print("--- the Taylor coefficients initiated are: {} ---\n".format(phi_parameters))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 start_time = time.time()
 
 # forward model
 def forward(params, vac_): # vac_ = vac_s, vac_i
     N = vac_.shape[0]
+    coeffs, phi_parameters = params[:n_coeff], params[n_coeff:]
 
     # initialize the vacuum and output fields:
     Siganl_field    = Field(Signal, PP_SLT, vac_[:, 0], N)
     Idler_field     = Field(Idler, PP_SLT, vac_[:, 1], N)
 
     # current pump structure
-    Pump.create_profile(params, N)
+    Pump.create_profile(coeffs)
 
     # current poling profile
-    phi = Poling_profile(phi_parameters, taylor_series)
+    Poling.create_profile(phi_parameters)
 
     # Propagate through the crystal:
-    crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT, phi)
+    crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT, Poling)
 
 
-    E_s_out_HG = decompose(Siganl_field.E_out, Signal.hermite_arr, N, max_mode)
-    E_i_out_HG = decompose(Idler_field.E_out, Signal.hermite_arr, N, max_mode)
-    E_i_vac_HG = decompose(Idler_field.E_vac, Signal.hermite_arr, N, max_mode)
+    E_s_out = decompose(Siganl_field.E_out, Signal.hermite_arr, N, max_mode)
+    E_i_out = decompose(Idler_field.E_out, Signal.hermite_arr, N, max_mode)
+    E_i_vac = decompose(Idler_field.E_vac, Signal.hermite_arr, N, max_mode)
     # say there are no higher modes by normalizing the power
-    E_s_out = fix_power1(E_s_out_HG, Siganl_field.E_out, Signal, PP_SLT)
-    E_i_out = fix_power1(E_i_out_HG, Idler_field.E_out, Signal, PP_SLT)
-    E_i_vac = fix_power1(E_i_vac_HG, Idler_field.E_vac, Signal, PP_SLT)
+    E_s_out = fix_power1(E_s_out, Siganl_field.E_out, Signal, PP_SLT)
+    E_i_out = fix_power1(E_i_out, Idler_field.E_out, Signal, PP_SLT)
+    E_i_vac = fix_power1(E_i_vac, Idler_field.E_vac, Signal, PP_SLT)
 
     "Coumpute k-space far field using FFT:"
     # normalization factors
@@ -146,27 +155,24 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     # FFT:
     E_s_out_k = FarFieldNorm_signal * Fourier(Siganl_field.E_out)
 
-    G1_ss_k      = (np.conj(E_s_out_k)[:,:, None, :, None] * E_s_out_k[:,None, :, None, :]).sum(0).reshape(Nx**2, Ny**2) / batch_size
+    P_ss         = ((np.conj(E_s_out_k)[:,:, None, :, None] * E_s_out_k[:,None, :, None, :]).real.sum(0).reshape(Nx**2, Ny**2))[::M + 1, ::M + 1] / batch_size
     G1_ss        = (np.conj(E_s_out)[:,:, None, :, None] * E_s_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
     G1_ii        = (np.conj(E_i_out)[:,:, None, :, None] * E_i_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
     G1_si        = (np.conj(E_i_out)[:,:, None, :, None] * E_s_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
     G1_si_dagger = (np.conj(E_s_out)[:,:, None, :, None] * E_i_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
     Q_si         = (E_i_vac[:,:, None, :, None] * E_s_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
     Q_si_dagger  = (np.conj(E_s_out)[:,:, None, :, None] * np.conj(E_i_vac)[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
-
-    return G1_ss_k, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
+    G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
+    return P_ss, G2
 
 def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
-    params = np.divide(params, la.norm(params))
-    batched_preds   = forward(params, vac_)
-    G1_ss_k, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
+    coeffs, phi_parameters = params[:n_coeff], params[n_coeff:]
+    coeffs = np.divide(coeffs, la.norm(coeffs))
+    params = np.concatenate((coeffs, phi_parameters))
 
-
-    P_ss     = G1_ss_k[::M + 1, ::M + 1].real
-    G2       = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
-
-    P_ss    = P_ss / np.sum(np.abs(P_ss))
-    G2      = G2 / np.sum(np.abs(G2))
+    P_ss, G2 = forward(params, vac_)
+    P_ss     = P_ss / np.sum(np.abs(P_ss))
+    G2       = G2 / np.sum(np.abs(G2))
 
     if loss_type is 'l1':
         return (1-alpha)*l1_loss(P_ss, P_ss_t) + alpha*l1_loss(G2, G2t)
@@ -194,10 +200,10 @@ def update(opt_state, i, x, P_ss_t, G2t):
 
 if learn_mode:
     # load target P, G2
-    Pss_t_load = 'P_ss_1.0HG00_N100_Nx80Ny80'
-    G2_t_load  = 'G2_1.0HG00_N100_Nx80Ny80'
-    P_ss_t  = pmap(lambda x: np.load(Pt_path + Pss_t_load + '.npy'))(np.arange(num_devices))
-    G2t     = pmap(lambda x: np.load(Pt_path + G2_t_load + '.npy'))(np.arange(num_devices))
+    Pss_t_load = 'P_ss_1.0HG00_no_tr_phase_N100_Nx40Ny40_z0.005_steps500'
+    G2_t_load  = 'G2_1.0HG00_no_tr_phase_N100_Nx40Ny40_z0.005_steps500'
+    P_ss_t     = pmap(lambda x: np.load(Pt_path + Pss_t_load + '.npy'))(np.arange(num_devices))
+    G2t        = pmap(lambda x: np.load(Pt_path + G2_t_load + '.npy'))(np.arange(num_devices))
 
     """Set dataset - Build a dataset of pairs Ai_vac, As_vac"""
     # seed vacuum samples
@@ -227,15 +233,19 @@ if learn_mode:
             idx = pmap(lambda x: np.array(epoch+i))(np.arange(num_devices))
             batch_loss, opt_state = update(opt_state, idx, x, P_ss_t, G2t)
             losses[epoch] += batch_loss[0].item()
-        params_ = get_params(opt_state)[0]
+        params = get_params(opt_state)
         losses[epoch] /= (i+1)
         epoch_time = time.time() - start_time_epoch
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
-        print("optimized parameters: {}".format(params_))
+        coeffs, phi_parameters = params[0][:n_coeff], params[0][n_coeff:]
+        print("optimized HG coefficients: {}".format(coeffs))
+        print("optimized Taylor coefficients: {}".format(phi_parameters))
         print("objective loss:{:0.6f}".format(losses[epoch]))
-        print("l1 loss:{:0.6f}".format(np.sum(np.abs(params_-params_gt))))
-        print("l2 loss:{:0.6f}".format(np.sum((params_-params_gt)**2)))
+        print("l1 HG coeffs loss:{:0.6f}".format(np.sum(np.abs(coeffs-coeffs_gt))))
+        print("l2 HG coeffs loss:{:0.6f}".format(np.sum((coeffs-coeffs_gt)**2)))
+        print("l1 Taylor coeffs loss:{:0.6f}".format(np.sum(np.abs(phi_parameters - phi_parameters_gt))))
+        print("l2 Taylor coeffs loss:{:0.6f}".format(np.sum((phi_parameters - phi_parameters_gt) ** 2)))
 
 # show last epoch result
 if save_res or save_tgt or show_res:
@@ -247,26 +257,15 @@ if save_res or save_tgt or show_res:
 
         # seed vacuum samples
         keys = random.split(random.PRNGKey(1986), num_devices)
-        # generate dataset for each gpu
-        vac_rnd = pmap(lambda key: random.normal(key, (batch_device, 2, 2, Nx, Ny)))(keys)  # number of devices, N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
+    # generate dataset for each gpu
+    vac_rnd = pmap(lambda key: random.normal(key, (batch_device, 2, 2, Nx, Ny)))(keys)  # number of devices, N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
 
-    batched_preds = pmap(forward)(params, vac_rnd)
-
-    G1_ss_k, G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si = batched_preds
-
-    G1_ss_k      = G1_ss_k.sum(0)
-    G1_ii        = G1_ii.sum(0)
-    G1_ss        = G1_ss.sum(0)
-    Q_si_dagger  = Q_si_dagger.sum(0)
-    Q_si         = Q_si.sum(0)
-    G1_si_dagger = G1_si_dagger.sum(0)
-    G1_si        = G1_si.sum(0)
-
-    P_ss         = G1_ss_k[::M + 1, ::M + 1].real
-    G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
+    P_ss, G2 = pmap(forward)(params, vac_rnd)
+    P_ss     = P_ss.sum(0)
+    G2       = G2.sum(0)
 
     if save_tgt:
-        HG_str = make_beam_from_HG_str(Pump.hermite_str, params)
+        HG_str = make_beam_from_HG_str(Pump.hermite_str, coeffs)
         Pss_t_name = 'P_ss' + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
         G2_t_name = 'G2' + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
         # save normalized version
@@ -301,7 +300,7 @@ if save_res or save_tgt or show_res:
         plt.colorbar()
         if save_res:
             res_name_pss = 'P_ss'
-            HG_str = make_beam_from_HG_str(Pump.hermite_str, params)
+            HG_str = make_beam_from_HG_str(Pump.hermite_str, coeffs)
             if learn_mode:
                 plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
             else:
@@ -342,7 +341,7 @@ if save_res or save_tgt or show_res:
         plt.colorbar()
         if save_res:
             res_name_g2 = 'G2'
-            HG_str = make_beam_from_HG_str(Pump.hermite_str, params)
+            HG_str = make_beam_from_HG_str(Pump.hermite_str, coeffs)
             if learn_mode:
                 plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
             else:
@@ -352,12 +351,8 @@ if save_res or save_tgt or show_res:
 
         # crystal's pattern
         XX, ZZ = np.meshgrid(PP_SLT.x, PP_SLT.z)
-        if len(phi_parameters.shape) > 1:
-            phi_parameters_ = phi_parameters[0]
-        else:
-            phi_parameters_ = phi_parameters
-        Phi = Poling_profile(phi_parameters_, taylor_series)
-        plt.imshow(np.sign(np.cos(PP_SLT.poling_period * ZZ + Phi)), aspect='auto')
+        Poling.create_profile(phi_parameters)
+        plt.imshow(np.sign(np.cos(PP_SLT.poling_period * ZZ + Poling.phi)), aspect='auto')
         plt.xlabel(' x [mm]')
         plt.ylabel(' z [mm]')
         plt.title('Crystal\'s poling pattern')

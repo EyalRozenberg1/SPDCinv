@@ -52,7 +52,7 @@ class Crystal:
         self.y = np.arange(-MaxY, MaxY, dy)  # y axis, length 2*MaxY  (transverse)
         self.z = np.arange(-MaxZ / 2, MaxZ / 2, dz)  # z axis, length MaxZ (propagation)
         self.ctype = nz_MgCLN_Gayer  # refractive index function
-        self.slab = PP_crystal_slab_2D
+        # self.slab = PP_crystal_slab_2D
         self.d = d
         self.poling_period = period
 
@@ -81,12 +81,10 @@ class Beam:
         self.crystal_dy = crystal.dy
         if max_mode:
             self.hermite_arr, self.hermite_str = HermiteBank(lam, self.waist, self.waist, max_mode, crystal.x, crystal.y)
-            self.profile     = []
 
-    def create_profile(self, HG_parameters, Nb):
-        self.profile = HG_parameters
-        E_temp       = np.tile(make_beam_from_HG(self.hermite_arr, HG_parameters), (Nb, 1, 1))
-        self.E       = fix_power(E_temp, self.power, self.n, self.crystal_dx, self.crystal_dy)
+    def create_profile(self, HG_parameters):
+        E_temp = make_beam_from_HG(self.hermite_arr, HG_parameters)
+        self.E = fix_power(E_temp, self.power, self.n, self.crystal_dx, self.crystal_dy)[np.newaxis, :, :]
 
 '''
 Class Field:
@@ -129,9 +127,12 @@ def PP_crystal_slab(delta_k, z, phi):
 def PP_crystal_slab_2D(delta_k, z, phi):
     return np.sign(np.cos(np.abs(delta_k) * z + phi))
 
-def Poling_profile(phi_parameters, taylor_series):
-    phi = (phi_parameters[:, None] * taylor_series).sum(0)
-    return phi
+class Poling_profile:
+    def __init__(self, taylor_series):
+        self.taylor_series = taylor_series
+
+    def create_profile(self, phi_parameters):
+        self.phi = (phi_parameters[:, None] * self.taylor_series).sum(0)
 
 '''
 Refractive index for MgCLN, based on Gayer et al, APB 2008
@@ -156,7 +157,7 @@ def nz_MgCLN_Gayer(lam, T):
 Crystal propagation
 propagate through crystal using split step Fourier for 4 fields: e_out and E_vac, signal and idler.
 '''
-def crystal_prop(Pump, Siganl_field, Idler_field, crystal, phi):
+def crystal_prop(Pump, Siganl_field, Idler_field, crystal, Poling):
     for z in crystal.z:
         # propagate
         x  = crystal.x
@@ -167,7 +168,7 @@ def crystal_prop(Pump, Siganl_field, Idler_field, crystal, phi):
         E_pump = propagate(Pump.E, x, y, Pump.k, z) * np.exp(1j * Pump.k * z)
 
         # crystal slab:
-        PP = crystal.slab(crystal.poling_period, z, phi)
+        PP = PP_crystal_slab_2D(crystal.poling_period, z, Poling.phi)
 
         # cooupled wave equations - split step
         # signal:
