@@ -1,81 +1,55 @@
 from __future__ import print_function, division, absolute_import
-from jax import value_and_grad, pmap, lax
-from jax.numpy import linalg as la
+from loss_funcs import l1_loss, kl_loss, sinkhorn_loss, l2_loss
 from spdc_helper import *
-from jax.experimental import optimizers
-import matplotlib.pyplot as plt
-from jax.lib import xla_bridge
-from functools import partial
-import os, time
-from datetime import datetime
-import jax.numpy as np
-import numpy as onp
-from jax.ops import index_update
-from loss_funcs import l1_loss, kl_loss, sinkhorn_loss
-
-# datetime object containing current date and time
-now = datetime.now()
-# dd/mm/YY H:M:S
-dt_string = now.strftime("%d/%m/%Y %H:%M:%S")
-print("date and time =", dt_string)
+from spdc_funcs import *
+from physical_params import *
 
 JAX_ENABLE_X64 = False
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
-
-num_devices = xla_bridge.device_count()
+# datetime object containing current date and time
+now       = datetime.now()
+print("date and time =", now.strftime("%d/%m/%Y %H:%M:%S"))
 start_time_initialization = time.time()
 
-learn_mode = False  # learn/infer
-show_res   = True   # display results 0/1
+learn_mode = True  # learn/infer
+save_stats = False
+show_res   = False   # display results 0/1
 save_res   = False  # save results
 save_tgt   = False  # save targets
 
-res_path      = 'results/'  # path to results folder
-Pt_path       = 'targets/'  # path to targets folder
+res_path       = 'results/'  # path to results folder
+Pt_path        = 'targets/'  # path to targets folder
+stats_path     = 'stats/'
 
 "Learning Hyperparameters"
-loss_type   = 'l1'  # l1:L1 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance", kll1: kl+gamma*l1
+loss_type   = 'l1'  # l1:L1 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
 step_size   = 0.01
-num_epochs  = 500
+num_epochs  = 30
 batch_size  = 100   # 10, 20, 50, 100 - number of iterations
-N           = 10000  # 100, 500, 1000  - number of total-iterations (dataset size)
+N           = 1000  # 100, 500, 1000  - number of total-iterations (dataset size)
 alpha       = 0.5   # in [0,1]; weight for loss: (1-alpha)Pss + alpha G2
-gamma       = 1.0  # in [0, inf]; balance loss kll1: kl+gamma*l1
-num_batches = int(N/batch_size)
-Ndevice     = int(N/num_devices)
-batch_device= int(batch_size/num_devices)
-
-assert N % batch_size == 0, "num_batches should be 'signed integer'"
-assert N % num_devices == 0, "The number of examples should be divisible by the number of devices"
-assert batch_size % num_devices == 0, "The number of examples within a batch should be divisible by the number of devices"
 
 
+num_batches, Ndevice, batch_device, num_devices = calc_and_asserts(N, batch_size)
 
 "Interaction Initialization"
 # Structure arrays - initialize crystal and structure arrays
-d33         = 23.4e-12  # in meter/Volt.[LiNbO3]
-PP_SLT      = Crystal(10e-6, 10e-6, 1e-5, 200e-6, 200e-6, 5e-3, d33)
-R           = 0.1  # distance to far-field screen in meters
-Temperature = 50
+PP_SLT      = Crystal(dx, dy, dz, MaxX, MaxY, MaxZ, d33)
 M           = len(PP_SLT.x)  # simulation size
 
-# Interacting wavelengths - initialize the interacting beams
 """
-    * define two pump's function (for now n_coeff must be 2) to define the pump *
-    * this should be later changed to the definition given by Sivan *
+* define two pump's function (for now n_coeff must be 2) to define the pump *
+* this should be later changed to the definition given by Sivan *
 """
-max_mode = 10
 n_coeff  = max_mode**2  # coefficients of beam-basis functions
-Pump     = Beam(532e-9, PP_SLT, Temperature, 50e-6, 1e-3, max_mode)  # wavelength, crystal, tmperature,waist,power, maxmode
-Signal   = Beam(1064e-9, PP_SLT, Temperature, np.sqrt(2)*Pump.waist, 1, max_mode)
-Idler    = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature, np.sqrt(2)*Pump.waist, 1)
+Pump     = Beam(lam_pump, PP_SLT, Temperature, waist_pump, power_pump, max_mode)  # wavelength, crystal, tmperature,waist,power, maxmode
+Signal   = Beam(lam_signal, PP_SLT, Temperature, np.sqrt(2)*Pump.waist, power_signal, max_mode)
+Idler    = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature, np.sqrt(2)*Pump.waist, power_signal)
 
 # phase mismatch
-delta_k = Pump.k - Signal.k - Idler.k
-PP_SLT.poling_period = 1.0 * delta_k
-# set coincidence window
-tau = 1e-9  # [nanosec]
+delta_k              = Pump.k - Signal.k - Idler.k
+PP_SLT.poling_period = dk_offset * delta_k
 
 "Interaction Parameters"
 Nx = len(PP_SLT.x)
@@ -85,45 +59,26 @@ Ny = len(PP_SLT.y)
 g1_ss_normalization = G1_Normalization(Signal.w)
 g1_ii_normalization = G1_Normalization(Idler.w)
 
-# coeffs_rand = random.normal(random.PRNGKey(0), (n_coeff, 2))
-# coeffs      = np.array(coeffs_rand[:, 0] + 1j*coeffs_rand[:, 1])
-coeffs = np.zeros(n_coeff)
-coeffs = index_update(coeffs, 2, 1.0)
-coeffs = index_update(coeffs, 3, 1.0)
-coeffs = index_update(coeffs, 14, 1.0)
-coeffs = index_update(coeffs, 35, 1.0)
-coeffs = np.divide(coeffs, la.norm(coeffs))
+coeffs         = HG_coeff_array(coeffs_str, n_coeff)
+phi_parameters = poling_array(poling_str)
 
-coeffs_gt = np.zeros(n_coeff)
-coeffs_gt = index_update(coeffs_gt, 0, 1.0)
-coeffs_gt = np.divide(coeffs_gt, la.norm(coeffs_gt))
+Poling = Poling_profile(phi_scale, PP_SLT.x,  PP_SLT.MaxX, len(phi_parameters))
+
 # replicate parameters for gpus
-# coeffs = pmap(lambda x: coeffs)(np.arange(num_devices))
-
-poling_str = 'no_tr_phase'
-phi_parameters = np.array([-120.0, 0, 720, 0, -480, 0, 64, 0, 0, 0, 0])  # no_tr_phase
-# phi_parameters = np.array([0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0])  # linear shift
-# phi_parameters = [0, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0]  # Lens
-# phi_parameters = [0, 0, 0, 20, 0, 0, 0, 0, 0, 0, 0]  # cube?
-# phi_parameters = [12, 0, -48, 0, 16, 0, 0, 0, 0, 0, 0]  # Hermite4
-# phi_parameters = np.array([-120, 0, 720, 0, -480, 0, 64, 0, 0, 0, 0])  # Hermite6
-phi_parameters_gt = np.array([0.0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])  # no_tr_phase
-phi_scale      = 1
-NormX          = PP_SLT.x / PP_SLT.MaxX
-taylor_series  = np.array([NormX**i for i in range(len(phi_parameters))])
-Poling = Poling_profile(taylor_series)
-
-# phi_parameters = pmap(lambda x: phi_parameters)(np.arange(num_devices))
-params = np.concatenate((coeffs, phi_parameters))
-params = pmap(lambda x: params)(np.arange(num_devices))
+params = pmap(lambda x: np.concatenate((coeffs, phi_parameters)))(np.arange(num_devices))
 
 print("--- the HG coefficients initiated are: {} ---\n".format(coeffs))
 print("--- the Taylor coefficients initiated are: {} ---\n".format(phi_parameters))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 start_time = time.time()
 
-# forward model
-def forward(params, vac_): # vac_ = vac_s, vac_i
+topic = now.strftime("%_Y-%m-%d") + "_Nb{}_Nx{}Ny{}_z{}_steps{}".format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
+if learn_mode:
+    topic += "_loss_{}".format(loss_type) + "_alpha{}".format(alpha) + "_N{}".format(N)
+
+
+@jit
+def forward(params, vac_):  # vac_ = vac_s, vac_i
     N = vac_.shape[0]
     coeffs, phi_parameters = params[:n_coeff], params[n_coeff:]
 
@@ -140,10 +95,9 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     # Propagate through the crystal:
     crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT, Poling)
 
-
-    E_s_out = decompose(Siganl_field.E_out, Signal.hermite_arr, N, max_mode)
-    E_i_out = decompose(Idler_field.E_out, Signal.hermite_arr, N, max_mode)
-    E_i_vac = decompose(Idler_field.E_vac, Signal.hermite_arr, N, max_mode)
+    E_s_out = decompose(Siganl_field.E_out, Signal.hermite_arr).reshape(N, max_mode, max_mode)
+    E_i_out = decompose(Idler_field.E_out, Signal.hermite_arr).reshape(N, max_mode, max_mode)
+    E_i_vac = decompose(Idler_field.E_vac, Signal.hermite_arr).reshape(N, max_mode, max_mode)
     # say there are no higher modes by normalizing the power
     E_s_out = fix_power1(E_s_out, Siganl_field.E_out, Signal, PP_SLT)
     E_i_out = fix_power1(E_i_out, Idler_field.E_out, Signal, PP_SLT)
@@ -155,19 +109,14 @@ def forward(params, vac_): # vac_ = vac_s, vac_i
     # FFT:
     E_s_out_k = FarFieldNorm_signal * Fourier(Siganl_field.E_out)
 
-    P_ss         = ((np.conj(E_s_out_k)[:,:, None, :, None] * E_s_out_k[:,None, :, None, :]).real.sum(0).reshape(Nx**2, Ny**2))[::M + 1, ::M + 1] / batch_size
-    G1_ss        = (np.conj(E_s_out)[:,:, None, :, None] * E_s_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
-    G1_ii        = (np.conj(E_i_out)[:,:, None, :, None] * E_i_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
-    G1_si        = (np.conj(E_i_out)[:,:, None, :, None] * E_s_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
-    G1_si_dagger = (np.conj(E_s_out)[:,:, None, :, None] * E_i_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
-    Q_si         = (E_i_vac[:,:, None, :, None] * E_s_out[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
-    Q_si_dagger  = (np.conj(E_s_out)[:,:, None, :, None] * np.conj(E_i_vac)[:,None, :, None, :]).sum(0).reshape(max_mode**2, max_mode**2) / batch_size
-    G2           = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
+    P_ss = Pss_calc(E_s_out_k, Nx, Ny, M, batch_size)
+    G2   = G2_calc(E_s_out, E_i_out, E_i_vac, batch_size).reshape(max_mode**2, max_mode**2)
     return P_ss, G2
+
 
 def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
     coeffs, phi_parameters = params[:n_coeff], params[n_coeff:]
-    coeffs = np.divide(coeffs, la.norm(coeffs))
+    coeffs = coeffs / np.sum(np.abs(coeffs))
     params = np.concatenate((coeffs, phi_parameters))
 
     P_ss, G2 = forward(params, vac_)
@@ -176,19 +125,16 @@ def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 targ
 
     if loss_type is 'l1':
         return (1-alpha)*l1_loss(P_ss, P_ss_t) + alpha*l1_loss(G2, G2t)
+    if loss_type is 'l2':
+        return (1-alpha)*l2_loss(P_ss, P_ss_t) + alpha*l2_loss(G2, G2t)
     if loss_type is 'kl':
         return (1-alpha)*kl_loss(P_ss_t, P_ss, eps=1e-7)+alpha*kl_loss(G2t, G2, eps=1)
-    if loss_type is 'kll1':
-        l1_l = (1-alpha)*l1_loss(P_ss, P_ss_t) + alpha*l1_loss(G2, G2t)
-        kl_l = (1-alpha)*kl_loss(P_ss_t, P_ss, eps=1e-7)+alpha*kl_loss(G2t, G2, eps=1)
-        return kl_l + gamma * l1_l
     if loss_type is 'wass':
-        return (1 - alpha) * sinkhorn_loss(P_ss, P_ss_t, M, eps=1e-3, max_iters=100, stop_thresh=None) + \
-               alpha * sinkhorn_loss(G2, G2t, M, eps=1e-3, max_iters=100, stop_thresh=None)
-    if loss_type is 'wass_kl':
-        return 1e7*sinkhorn_loss(P_ss, P_ss_t, M, eps=1e-3, max_iters=100, stop_thresh=None) + kl_loss(G2t, G2, eps=1)
+        return (1-alpha)*sinkhorn_loss(P_ss, P_ss_t, M, eps=1e-3, max_iters=100, stop_thresh=None) + \
+               alpha*sinkhorn_loss(G2, G2t, n_coeff, eps=1e-3, max_iters=100, stop_thresh=None)
     else:
         raise Exception('Nonstandard loss choice')
+
 
 @partial(pmap, axis_name='device')
 def update(opt_state, i, x, P_ss_t, G2t):
@@ -197,13 +143,17 @@ def update(opt_state, i, x, P_ss_t, G2t):
     grads               = np.array([lax.psum(dw, 'device') for dw in grads])
     return lax.pmean(batch_loss, 'device'), opt_update(i, grads, opt_state)
 
-
 if learn_mode:
+    print("--- training mode ---")
     # load target P, G2
-    Pss_t_load = 'P_ss_1.0HG00_no_tr_phase_N100_Nx40Ny40_z0.005_steps500'
-    G2_t_load  = 'G2_1.0HG00_no_tr_phase_N100_Nx40Ny40_z0.005_steps500'
-    P_ss_t     = pmap(lambda x: np.load(Pt_path + Pss_t_load + '.npy'))(np.arange(num_devices))
-    G2t        = pmap(lambda x: np.load(Pt_path + G2_t_load + '.npy'))(np.arange(num_devices))
+    P_ss_t     = pmap(lambda x: np.load(Pt_path + targert_folder + 'P_ss.npy'))(np.arange(num_devices))
+    G2t        = pmap(lambda x: np.load(Pt_path + targert_folder + 'G2.npy'))(np.arange(num_devices))
+
+    coeffs_gt = np.load(Pt_path + targert_folder + 'HG_coeffs.npy')
+    phi_parameters_gt = np.load(Pt_path + targert_folder + 'Taylor_coeffs.npy')
+
+    assert len(coeffs) == len(coeffs_gt), "HG parameters and its ground truth must contain same length"
+    assert len(phi_parameters) == len(phi_parameters_gt), "Taylor series phi parameters and its ground truth must contain same length"
 
     """Set dataset - Build a dataset of pairs Ai_vac, As_vac"""
     # seed vacuum samples
@@ -223,40 +173,95 @@ if learn_mode:
     # Use optimizers to set optimizer initialization and update functions
     opt_init, opt_update, get_params = optimizers.adam(step_size, b1=0.9, b2=0.999, eps=1e-08)
     opt_state = opt_init(params)
-    losses = []
+    obj_loss = []
+    l1_HG_loss, l2_HG_loss = [], []
+    l1_tylor_loss, l2_tylor_loss = [], []
     for epoch in range(num_epochs):
-        losses.append(0.0)
+        obj_loss_epoch = 0.0
         start_time_epoch = time.time()
         batch_set = pmap(get_train_batches)(vac_rnd, key_batch_epoch[:, epoch])
         print("Epoch {} is running".format(epoch))
         for i, x in enumerate(batch_set):
             idx = pmap(lambda x: np.array(epoch+i))(np.arange(num_devices))
             batch_loss, opt_state = update(opt_state, idx, x, P_ss_t, G2t)
-            losses[epoch] += batch_loss[0].item()
+            obj_loss_epoch += batch_loss[0].item()
         params = get_params(opt_state)
-        losses[epoch] /= (i+1)
+        obj_loss.append(obj_loss_epoch/(i+1))
         epoch_time = time.time() - start_time_epoch
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
         coeffs, phi_parameters = params[0][:n_coeff], params[0][n_coeff:]
+        coeffs = coeffs / np.sum(np.abs(coeffs))
+        l1_HG_loss.append(np.sum(np.abs(coeffs-coeffs_gt)))
+        l2_HG_loss.append(np.sum((coeffs-coeffs_gt)**2))
+        l1_tylor_loss.append(np.sum(np.abs(phi_parameters - phi_parameters_gt)))
+        l2_tylor_loss.append(np.sum((phi_parameters - phi_parameters_gt) ** 2))
         print("optimized HG coefficients: {}".format(coeffs))
         print("optimized Taylor coefficients: {}".format(phi_parameters))
-        print("objective loss:{:0.6f}".format(losses[epoch]))
-        print("l1 HG coeffs loss:{:0.6f}".format(np.sum(np.abs(coeffs-coeffs_gt))))
-        print("l2 HG coeffs loss:{:0.6f}".format(np.sum((coeffs-coeffs_gt)**2)))
-        print("l1 Taylor coeffs loss:{:0.6f}".format(np.sum(np.abs(phi_parameters - phi_parameters_gt))))
-        print("l2 Taylor coeffs loss:{:0.6f}".format(np.sum((phi_parameters - phi_parameters_gt) ** 2)))
+        print("objective loss:{:0.6f}".format(obj_loss[epoch]))
+        print("l1 HG coeffs loss:{:0.6f}".format(l1_HG_loss[epoch]))
+        print("l2 HG coeffs loss:{:0.6f}".format(l2_HG_loss[epoch]))
+        print("l1 Taylor coeffs loss:{:0.6f}".format(l1_tylor_loss[epoch]))
+        print("l2 Taylor coeffs loss:{:0.6f}".format(l2_tylor_loss[epoch]))
+
+
+    print("--- training time: %s seconds ---" % (time.time() - start_time))
+
+    curr_dir = stats_path + topic
+    if os.path.isdir(curr_dir):
+        for filename in os.listdir(curr_dir):
+            os.remove(curr_dir + '/' + filename)
+    else:
+        os.makedirs(curr_dir)
+    exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
+    exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_gt))
+    exp_details.write(make_taylor_from_phi_str(phi_parameters, phi_parameters_gt))
+    exp_details.close()
+
+    plt.plot(obj_loss, 'r')
+    plt.title('(1-{}) loss(Pss) + {} loss(G2), loss type:{}'.format(alpha, alpha, loss_type))
+    plt.ylabel('objective loss')
+    plt.xlabel('#epoch')
+    # plt.ylim(0, 1)
+    if save_stats:
+        plt.savefig(curr_dir + '/objective_loss')
+    plt.show()
+    plt.close()
+
+    plt.plot(l1_HG_loss, 'r', label='L1')
+    plt.plot(l2_HG_loss, 'b', label='L2')
+    plt.title('HG coefficients')
+    plt.ylabel('measure loss')
+    plt.xlabel('#epoch')
+    # plt.ylim(0, 5)
+    plt.legend()
+    if save_stats:
+        plt.savefig(curr_dir + '/HG_coeffs_losses')
+    plt.show()
+    plt.close()
+
+    plt.plot(l1_tylor_loss, 'r', label='L1')
+    plt.plot(l2_tylor_loss, 'b', label='L2')
+    plt.title('Taylor coefficients')
+    plt.ylabel('measure loss')
+    plt.xlabel('#epoch')
+    plt.legend()
+    if save_stats:
+        plt.savefig(curr_dir + '/Taylor_coeffs_losses')
+    plt.show()
+    plt.close()
 
 # show last epoch result
 if save_res or save_tgt or show_res:
+    print("--- inference mode ---")
     N_res = batch_size
     ###########################################
     # Set dataset
     ##########################################
     # Build a dataset of pairs Ai_vac, As_vac
 
-        # seed vacuum samples
-        keys = random.split(random.PRNGKey(1986), num_devices)
+    # seed vacuum samples
+    keys = random.split(random.PRNGKey(1986), num_devices)
     # generate dataset for each gpu
     vac_rnd = pmap(lambda key: random.normal(key, (batch_device, 2, 2, Nx, Ny)))(keys)  # number of devices, N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
 
@@ -265,14 +270,52 @@ if save_res or save_tgt or show_res:
     G2       = G2.sum(0)
 
     if save_tgt:
-        HG_str = make_beam_from_HG_str(Pump.hermite_str, coeffs)
-        Pss_t_name = 'P_ss' + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
-        G2_t_name = 'G2' + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
+        print("--- saving targets ---")
+        curr_dir = Pt_path + topic
+        if os.path.isdir(curr_dir):
+            for filename in os.listdir(curr_dir):
+                os.remove(curr_dir + '/' + filename)
+        else:
+            os.makedirs(curr_dir)
+
+        Pss_t_name = 'P_ss'
+        G2_t_name = 'G2'
         # save normalized version
-        np.save(Pt_path + Pss_t_name, P_ss/np.sum(np.abs(P_ss)))
-        np.save(Pt_path + G2_t_name, G2/np.sum(np.abs(G2)))
+        np.save(curr_dir + '/' + Pss_t_name, P_ss / np.sum(np.abs(P_ss)))
+        np.save(curr_dir + '/' + G2_t_name, G2 / np.sum(np.abs(G2)))
+
+        np.save(curr_dir + '/HG_coeffs', coeffs)
+        np.save(curr_dir + '/Taylor_coeffs', phi_parameters)
+
+        exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
+        if learn_mode:
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_gt))
+            exp_details.write(make_taylor_from_phi_str(phi_parameters, phi_parameters_gt))
+        else:
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs))
+            exp_details.write(make_taylor_from_phi_str(phi_parameters))
+        exp_details.close()
 
     if show_res or save_res:
+        print("--- saving/plotting results ---")
+
+        curr_dir = res_path + topic
+        if os.path.isdir(curr_dir):
+            for filename in os.listdir(curr_dir):
+                os.remove(curr_dir + '/' + filename)
+        else:
+            os.makedirs(curr_dir)
+
+        exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
+        if learn_mode:
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_gt))
+            exp_details.write(make_taylor_from_phi_str(phi_parameters, phi_parameters_gt))
+
+        else:
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs))
+            exp_details.write(make_taylor_from_phi_str(phi_parameters))
+        exp_details.close()
+
         ################
         # Plot G1 #
         ################
@@ -280,31 +323,26 @@ if save_res or save_tgt or show_res:
         FFcoordinate_axis_Idler = 1e3 * FF_position_axis(PP_SLT.dx, PP_SLT.MaxX, Idler.k / Idler.n, R)
         FFcoordinate_axis_Signal = 1e3 * FF_position_axis(PP_SLT.dx, PP_SLT.MaxX, Signal.k / Signal.n, R)
 
-    # AK, NOV24: I added a far-field position axis extents, in mm.
-    extents_FFcoordinates_signal = [min(FFcoordinate_axis_Signal), max(FFcoordinate_axis_Signal),
-                                    min(FFcoordinate_axis_Signal), max(FFcoordinate_axis_Signal)]
-    extents_FFcoordinates_idler = [min(FFcoordinate_axis_Idler), max(FFcoordinate_axis_Idler), min(FFcoordinate_axis_Idler),
-                                   max(FFcoordinate_axis_Idler)]
+        # AK, NOV24: I added a far-field position axis extents, in mm.
+        extents_FFcoordinates_signal = [min(FFcoordinate_axis_Signal), max(FFcoordinate_axis_Signal),
+                                        min(FFcoordinate_axis_Signal), max(FFcoordinate_axis_Signal)]
+        extents_FFcoordinates_idler = [min(FFcoordinate_axis_Idler), max(FFcoordinate_axis_Idler), min(FFcoordinate_axis_Idler),
+                                       max(FFcoordinate_axis_Idler)]
 
-    # calculate theoretical angle for signal
-    theoretical_angle = np.arccos((Pump.k - PP_SLT.poling_period) / 2 / Signal.k)
-    theoretical_angle = np.arcsin(Signal.n * np.sin(theoretical_angle) / 1)  # Snell's law
+        # calculate theoretical angle for signal
+        theoretical_angle = np.arccos((Pump.k - PP_SLT.poling_period) / 2 / Signal.k)
+        theoretical_angle = np.arcsin(Signal.n * np.sin(theoretical_angle) / 1)  # Snell's law
 
         P_ss /= g1_ss_normalization
 
         plt.imshow(P_ss * 1e-6, extent=extents_FFcoordinates_signal)  # AK, Dec08: Units of counts/mm^2*sec
         plt.plot(1e3 * R * np.tan(theoretical_angle), 0, 'xw')
         plt.xlabel(' x [mm]')
-    plt.ylabel(' y [mm]')
+        plt.ylabel(' y [mm]')
         plt.title('Single photo-detection probability, Far field')
         plt.colorbar()
         if save_res:
-            res_name_pss = 'P_ss'
-            HG_str = make_beam_from_HG_str(Pump.hermite_str, coeffs)
-            if learn_mode:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
-            else:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_pss + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
+            plt.savefig(curr_dir + '/' + 'P_ss')
         if show_res:
             plt.show()
 
@@ -323,7 +361,7 @@ if save_res or save_tgt or show_res:
             np.save(G2_unwrap_idx_str, G2_unwrapped_idx_np)
 
         else:
-        G2_unwrapped_idx_np = np.load(G2_unwrap_idx_str)
+            G2_unwrapped_idx_np = np.load(G2_unwrap_idx_str)
         G2_unwrapped_idx = onp.ndarray.tolist(G2_unwrapped_idx_np)
         del G2_unwrapped_idx_np
 
@@ -340,12 +378,7 @@ if save_res or save_tgt or show_res:
         plt.ylabel(r'idle mode j')
         plt.colorbar()
         if save_res:
-            res_name_g2 = 'G2'
-            HG_str = make_beam_from_HG_str(Pump.hermite_str, coeffs)
-            if learn_mode:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
-            else:
-                plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + res_name_g2 + HG_str + '_{}_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
+            plt.savefig(curr_dir + '/' + 'G2')
         if show_res:
             plt.show()
 
@@ -357,12 +390,10 @@ if save_res or save_tgt or show_res:
         plt.ylabel(' z [mm]')
         plt.title('Crystal\'s poling pattern')
         plt.colorbar()
-        if learn_mode:
-            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_{}_N{}_Nx{}Ny{}_z{}_steps{}_{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), loss_type))
-        else:
-            plt.savefig(res_path + now.strftime("%_Y-%m-%d_") + 'poling_{}_N{}_Nx{}Ny{}_z{}_steps{}.png'.format(poling_str, batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z)))
+        if save_res:
+            plt.savefig(curr_dir + '/' + 'poling')
         if show_res:
             plt.show()
 
-print("--- running time: %s seconds ---" % (time.time() - start_time))
+print("\n--- Done: %s seconds ---" % (time.time() - start_time))
 exit()

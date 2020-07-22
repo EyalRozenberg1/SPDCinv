@@ -1,7 +1,15 @@
-import jax.numpy as np
-import jax.nn as nn
 import jax.random as random
+from jax import value_and_grad, pmap, lax
+from jax.numpy import linalg as la
+from jax.experimental import optimizers
+import matplotlib.pyplot as plt
+from functools import partial
+import os, time
+from datetime import datetime
+import numpy as onp
+import jax.numpy as np
 import math
+from jax import jit
 
 
 ###########################################
@@ -17,7 +25,6 @@ h_bar = 1.054571800e-34  # Units are m^2 kg / s, taken from http://physics.nist.
 ###########################################
 SFG_idler_wavelength    = lambda lambda_p, lambda_s: lambda_p * lambda_s / (lambda_s - lambda_p)  # Compute the idler wavelength given pump and signal
 E0                      = lambda P, n, W0: np.sqrt(P / (n * c * eps0 * np.pi * W0 ** 2))  # Calc amplitude
-Fourier                 = lambda A: (np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A))))  # Fourier
 G1_Normalization        = lambda w: h_bar * w / (2 * eps0 * c)
 I                       = lambda A, n: 2 * n * eps0 * c * np.abs(A) ** 2  # Intensity
 Power2D                 = lambda A, n, dx, dy: np.sum(I(A, n)) * dx * dy
@@ -109,26 +116,20 @@ class Field:
 # Functions
 ######################################################
 '''
-A helper function to randomly initialize weights
-for the coefficients
-* m - number of coefficients
-* scale - all weights should sum to 'scale'
-'''
-def random_params(m, key, scale=1):
-  return scale * nn.softmax(random.normal(key, (m,)))
-
-'''
 Periodically poled crystal slab
 create the crystal slab at point z in the crystal, for poling period 2pi/delta_k
 '''
+@jit
 def PP_crystal_slab(delta_k, z, phi):
     return np.sign(np.cos(np.abs(delta_k) * z))
-
+@jit
 def PP_crystal_slab_2D(delta_k, z, phi):
     return np.sign(np.cos(np.abs(delta_k) * z + phi))
 
 class Poling_profile:
-    def __init__(self, taylor_series):
+    def __init__(self, phi_scale, x,  MaxX, length):
+        NormX = phi_scale * x / MaxX
+        taylor_series = np.array([NormX ** i for i in range(length)])
         self.taylor_series = taylor_series
 
     def create_profile(self, phi_parameters):
@@ -158,12 +159,12 @@ Crystal propagation
 propagate through crystal using split step Fourier for 4 fields: e_out and E_vac, signal and idler.
 '''
 def crystal_prop(Pump, Siganl_field, Idler_field, crystal, Poling):
-    for z in crystal.z:
-        # propagate
-        x  = crystal.x
-        y  = crystal.y
-        dz = crystal.dz
+    # propagate
+    x = crystal.x
+    y = crystal.y
+    dz = crystal.dz
 
+    for z in crystal.z:
         # pump beam:
         E_pump = propagate(Pump.E, x, y, Pump.k, z) * np.exp(1j * Pump.k * z)
 
@@ -193,27 +194,6 @@ def crystal_prop(Pump, Siganl_field, Idler_field, crystal, Poling):
 
     return
 
-
-'''
-Free space propagation of a Gaussian beam
-Calcualtes the 2-D distribution of a gaussian beam at point z_point
-calculation according to Boyd, second edition, 2008
-inputs:
-    - beam: class beam
-    - crystal: crystal class
-    - z_point: the z location of the beam
-Boyd 2nd eddition       
-'''
-
-def Gaussian_beam_calc(beam, crystal, z_point):
-    X, Y = np.meshgrid(crystal.x, crystal.y, indexing='ij')
-    xi = 2 * (z_point) / beam.b
-    tau = 1 / (1 + 1j * xi)
-    E = E0(beam.power, beam.n, beam.waist) * tau * np.exp(-((X) ** 2 + (Y) ** 2) / (beam.waist ** 2) * tau) * np.exp(
-        1j * beam.k * (z_point))
-    return E
-
-
 '''
 Free Space propagation using the free space transfer function 
 (two  dimensional), according to Saleh
@@ -224,6 +204,7 @@ Free Space propagation using the free space transfer function
 The output is the propagated field.
 Using CGS, or MKS, Boyd 2nd eddition       
 '''
+# @jit
 def propagate(A, x, y, k, dz):
     dx = np.abs(x[1] - x[0])
     dy = np.abs(y[1] - y[0])
@@ -323,20 +304,41 @@ hermite_dict  - a dictionary of HG modes. ordered in dictionary order (00,01,10,
 HG_parameters - the wieght of each mode in hermite_dict
 these two have to have the same length!
 '''
+@jit
 def make_beam_from_HG(hermite_arr, HG_parameters):
     if len(HG_parameters) != len(hermite_arr):
         print('WRONG NUMBER OF PARAMETERS!!!')
         return
     return (HG_parameters[:,None, None]*hermite_arr).sum(0)
 
-def make_beam_from_HG_str(hermite_str, HG_parameters):
+def make_beam_from_HG_str(hermite_str, HG_parameters, HG_parameters_gt=None):
     if len(HG_parameters.shape) > 1:
         HG_parameters = HG_parameters[0]
-    print_str = ''
-    for n, mode_x in enumerate(hermite_str):
-        if HG_parameters[n] > 1e-2:
-            HG_str = '_{:.2}'.format(HG_parameters[n])
-            print_str = print_str + HG_str + 'HG' + mode_x
+    if HG_parameters_gt is None:
+        print_str = 'HG coefficients:\n'
+        for n, mode_x in enumerate(hermite_str):
+            HG_str = ' : {:.4}\n'.format(HG_parameters[n])
+            print_str = print_str + 'HG' + mode_x + HG_str
+    else:
+        print_str = 'HG coefficients \t ground truth \n'
+        for n, mode_x in enumerate(hermite_str):
+            HG_str = ' : {:.4}\t\t\t {:.4}\n'.format(HG_parameters[n], HG_parameters_gt[n])
+            print_str = print_str + 'HG' + mode_x + HG_str
+    return print_str
+
+def make_taylor_from_phi_str(phi_parameters, phi_parameters_gt=None):
+    if len(phi_parameters.shape) > 1:
+        phi_parameters = phi_parameters[0]
+    if phi_parameters_gt is None:
+        print_str = '\n\nTaylor-coeffs:\n'
+        for x, phi in enumerate(phi_parameters):
+            str = 'x^{} : {:.4}\n'.format(x, phi)
+            print_str = print_str + str
+    else:
+        print_str = '\n\nTaylor-coeffs \t ground truth \n'
+        for x, phi in enumerate(phi_parameters):
+            str = 'x^{} : {:.4}\t\t\t {:.4}\n'.format(x, phi, phi_parameters_gt[x])
+            print_str = print_str + str
     return print_str
 
 
@@ -367,7 +369,7 @@ def trace_it(G, dim1, dim2):
 project: projects some state A to projected_state
 Both are matrices of the same size
 '''
-
+@jit
 def project(projected_state, A, minval=0):
     Nxx2            = A.shape[1]**2
     N               = A.shape[0]
@@ -376,24 +378,26 @@ def project(projected_state, A, minval=0):
     normalization1  = np.abs(A**2).reshape(N, Nxx2).sum(1)
     normalization2  = np.abs(projected_state**2).reshape(Nh, Nxx2).sum(1)
     projection      = projection / np.sqrt(normalization1[None,:]*normalization2[:,None])
-    cond1 = np.abs(np.real(projection)) <= np.abs(minval)
-    cond2 = np.abs(np.imag(projection)) <= np.abs(minval)
-    projection = cond1*(cond2*0+(1-cond2)*1j*np.imag(projection)) + (1-cond1)*(np.real(projection))
+    cond1           = np.abs(np.real(projection)) <= np.abs(minval)
+    cond2           = np.abs(np.imag(projection)) <= np.abs(minval)
+    projection      = cond1*(cond2*0+(1-cond2)*1j*np.imag(projection)) + (1-cond1)*(np.real(projection))
     return projection
 '''
 Decompose a state A into modes defined in the dictionary
 '''
-def decompose(A, hermite_arr, N, m):
-        minval1 = np.abs(project(hermite_arr[0][None, :], hermite_arr[2][None, :]))
-        minval2 = np.abs(project(hermite_arr[0][None, :], hermite_arr[1][None, :]))
-        minval = min(minval1, minval2) * 1.1
+@jit
+def decompose(A, hermite_arr):
+        # minval1 = np.abs(project(hermite_arr[0][None, :], hermite_arr[2][None, :]))
+        minval = np.abs(project(hermite_arr[0][None, :], hermite_arr[1][None, :]))
+        # minval = min(minval1, minval2) * 1.1
         HG = hermite_arr[:, None]
         projection = project(HG, A, minval)
-        return np.transpose(projection).reshape(N, m, m)
+        return np.transpose(projection)
 
 ''' 
 This function takes a field A and normalizes in to have the power indicated 
 '''
+@jit
 def fix_power(A, power, n, dx, dy):
     output = A * np.sqrt(power) / np.sqrt(Power2D(A, n, dx, dy))
     return output
@@ -406,3 +410,13 @@ def fix_power1(E_fix, E_original, beam, crystal):
     dy = crystal.dy
     power = Power2D(E_original, n, dx, dy)
     return fix_power(E_fix, power, n, dx, dy)
+
+
+@jit
+def kron(a, b):
+    return (a[:,:, None, :, None] * b[:,None, :, None, :]).sum(0)
+
+
+# @jit
+def Fourier(A):
+    return np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A)))

@@ -1,10 +1,28 @@
 import jax.numpy as np
+from jax import jit
+from jax.numpy import linalg as la
 
 
+###########
+# L1 Loss #
+###########
+@jit
 def l1_loss(a, b):
     return np.sum(np.abs(a - b))
 
 
+###########
+# L2 Loss #
+###########
+@jit
+def l2_loss(a, b):
+    return np.sum((a - b)**2)
+
+
+#########################
+# kullback leibler Loss #
+#########################
+@jit
 def kl_loss(a, b, eps=1e-7):
     # KL Divergence #
     """ Epsilon is used here to avoid conditional code for
@@ -13,8 +31,9 @@ def kl_loss(a, b, eps=1e-7):
     B = b + eps
     return np.abs(np.sum(B * np.log(B / A)))
 
-
-
+#################
+# Sinkhorn Loss #
+#################
 def pairwise_distances(a, b, p=2):
     """
     Compute the pairwise distance matrix between a and b which both have size [m, n, d] or [n, d]. The result is a tensor of
