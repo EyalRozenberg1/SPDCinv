@@ -116,7 +116,7 @@ def forward(params, vac_):  # vac_ = vac_s, vac_i
 
 def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
     coeffs, phi_parameters = params[:n_coeff], params[n_coeff:]
-    coeffs = coeffs / np.sum(np.abs(coeffs))
+    coeffs = coeffs / np.sum(np.abs(coeffs)**2)
     params = np.concatenate((coeffs, phi_parameters))
 
     P_ss, G2 = forward(params, vac_)
@@ -191,7 +191,7 @@ if learn_mode:
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
         coeffs, phi_parameters = params[0][:n_coeff], params[0][n_coeff:]
-        coeffs = coeffs / np.sum(np.abs(coeffs))
+        coeffs = coeffs / np.sum(np.abs(coeffs)**2)
         l1_HG_loss.append(np.sum(np.abs(coeffs-coeffs_gt)))
         l2_HG_loss.append(np.sum((coeffs-coeffs_gt)**2))
         l1_tylor_loss.append(np.sum(np.abs(phi_parameters - phi_parameters_gt)))

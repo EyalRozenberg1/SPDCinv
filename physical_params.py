@@ -57,7 +57,7 @@ def HG_coeff_array(coeff_str, n_coeff):
     else:
         assert "ERROR: incompatible HG coefficients-string"
 
-    coeffs    = coeffs / np.sum(np.abs(coeffs))
+    coeffs    = coeffs / np.sum(np.abs(coeffs)**2)
 
     return coeffs
 
