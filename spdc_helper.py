@@ -310,34 +310,36 @@ def make_beam_from_HG(hermite_arr, HG_parameters):
         return
     return (HG_parameters[:,None, None]*hermite_arr).sum(0)
 
-def make_beam_from_HG_str(hermite_str, HG_parameters, HG_parameters_gt=None):
+def make_beam_from_HG_str(hermite_str, HG_parameters, coeffs_str, HG_parameters_gt=None):
+    print_str = "initial HG coefficients string: {}\n\n".format(coeffs_str)
     if len(HG_parameters.shape) > 1:
         HG_parameters = HG_parameters[0]
     if HG_parameters_gt is None:
-        print_str = 'HG coefficients:\n'
+        print_str += 'HG coefficients:\n'
         for n, mode_x in enumerate(hermite_str):
             HG_str = ' : {:.4}\n'.format(HG_parameters[n])
-            print_str = print_str + 'HG' + mode_x + HG_str
+            print_str += 'HG' + mode_x + HG_str
     else:
-        print_str = 'HG coefficients \t ground truth \n'
+        print_str += 'HG coefficients \t ground truth \n'
         for n, mode_x in enumerate(hermite_str):
             HG_str = ' : {:.4}\t\t\t {:.4}\n'.format(HG_parameters[n], HG_parameters_gt[n])
-            print_str = print_str + 'HG' + mode_x + HG_str
+            print_str += 'HG' + mode_x + HG_str
     return print_str
 
-def make_taylor_from_phi_str(phi_parameters, phi_parameters_gt=None):
+def make_taylor_from_phi_str(phi_parameters, poling_str, phi_parameters_gt=None):
+    print_str = "\n\n\ninitial Taylor coefficients string: {}\n\n".format(poling_str)
     if len(phi_parameters.shape) > 1:
         phi_parameters = phi_parameters[0]
     if phi_parameters_gt is None:
-        print_str = '\n\nTaylor-coeffs:\n'
+        print_str += 'Taylor-coeffs:\n'
         for x, phi in enumerate(phi_parameters):
             str = 'x^{} : {:.4}\n'.format(x, phi)
-            print_str = print_str + str
+            print_str += str
     else:
-        print_str = '\n\nTaylor-coeffs \t ground truth \n'
+        print_str += 'Taylor-coeffs \t ground truth \n'
         for x, phi in enumerate(phi_parameters):
             str = 'x^{} : {:.4}\t\t\t {:.4}\n'.format(x, phi, phi_parameters_gt[x])
-            print_str = print_str + str
+            print_str += str
     return print_str
 
 

@@ -23,7 +23,7 @@ Pt_path        = 'targets/'  # path to targets folder
 stats_path     = 'stats/'
 
 "Learning Hyperparameters"
-loss_type   = 'kl'  # l1:L1 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
+loss_type   = 'l1'  # l1:L1 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
 step_size   = 0.01
 num_epochs  = 50
 batch_size  = 100   # 10, 20, 50, 100 - number of iterations
@@ -214,8 +214,8 @@ if learn_mode:
     else:
         os.makedirs(curr_dir)
     exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
-    exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_gt))
-    exp_details.write(make_taylor_from_phi_str(phi_parameters, phi_parameters_gt))
+    exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
+    exp_details.write(make_taylor_from_phi_str(phi_parameters, poling_str, phi_parameters_gt))
     exp_details.close()
 
     plt.plot(obj_loss, 'r')
@@ -289,11 +289,11 @@ if save_res or save_tgt or show_res:
 
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_gt))
-            exp_details.write(make_taylor_from_phi_str(phi_parameters, phi_parameters_gt))
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
+            exp_details.write(make_taylor_from_phi_str(phi_parameters, poling_str, phi_parameters_gt))
         else:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs))
-            exp_details.write(make_taylor_from_phi_str(phi_parameters))
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+            exp_details.write(make_taylor_from_phi_str(phi_parameters, poling_str))
         exp_details.close()
 
     if show_res or save_res:
@@ -308,12 +308,12 @@ if save_res or save_tgt or show_res:
 
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_gt))
-            exp_details.write(make_taylor_from_phi_str(phi_parameters, phi_parameters_gt))
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
+            exp_details.write(make_taylor_from_phi_str(phi_parameters, poling_str, phi_parameters_gt))
 
         else:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs))
-            exp_details.write(make_taylor_from_phi_str(phi_parameters))
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+            exp_details.write(make_taylor_from_phi_str(phi_parameters, poling_str))
         exp_details.close()
 
         ################
