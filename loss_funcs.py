@@ -1,6 +1,5 @@
 import jax.numpy as np
 from jax import jit
-from jax.numpy import linalg as la
 
 
 ###########
@@ -26,10 +25,11 @@ def l2_loss(a, b):
 def kl_loss(a, b, eps=1e-7):
     # KL Divergence #
     """ Epsilon is used here to avoid conditional code for
-    checking that neither P nor Q is equal to 0. """
+    checking that neither P nor Q is equal to 0 (or smaller). """
     A = a + eps
     B = b + eps
-    return np.abs(np.sum(B * np.log(B / A)))
+    return np.sum(B * np.log(B / A))
+
 
 #################
 # Sinkhorn Loss #

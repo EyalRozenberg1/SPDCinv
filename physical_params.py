@@ -1,7 +1,6 @@
 from jax import numpy as np
 import jax.random as random
 from jax.ops import index_update
-from jax.numpy import linalg as la
 
 "Interaction Initialization"
 
@@ -37,12 +36,12 @@ tau          = 1e-9  # [nanosec]
 # Experiment parameters
 coeffs_str = "my_custom"
 poling_str = "no_tr_phase"
-targert_folder = '2020-07-22_Nb100_Nx40Ny40_z0.005_steps500/'  # for loading targets for training
+targert_folder = '2020-07-23_Nb100_Nx40Ny40_z0.005_steps500/'  # for loading targets for training
 
 
 def HG_coeff_array(coeff_str, n_coeff):
     if (coeff_str == "rand_real"):
-        coeffs = random.normal(random.PRNGKey(0), n_coeff)
+        coeffs = random.normal(random.PRNGKey(0), [n_coeff])
     elif (coeff_str == "random"):
         coeffs_rand = random.normal(random.PRNGKey(0), (n_coeff, 2))
         coeffs      = np.array(coeffs_rand[:, 0] + 1j*coeffs_rand[:, 1])

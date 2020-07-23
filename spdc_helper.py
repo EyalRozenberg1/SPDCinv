@@ -1,6 +1,5 @@
 import jax.random as random
 from jax import value_and_grad, pmap, lax
-from jax.numpy import linalg as la
 from jax.experimental import optimizers
 import matplotlib.pyplot as plt
 from functools import partial

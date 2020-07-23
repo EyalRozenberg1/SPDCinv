@@ -23,11 +23,11 @@ Pt_path        = 'targets/'  # path to targets folder
 stats_path     = 'stats/'
 
 "Learning Hyperparameters"
-loss_type   = 'l1'  # l1:L1 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
+loss_type   = 'kl'  # l1:L1 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
 step_size   = 0.01
-num_epochs  = 30
+num_epochs  = 50
 batch_size  = 100   # 10, 20, 50, 100 - number of iterations
-N           = 1000  # 100, 500, 1000  - number of total-iterations (dataset size)
+N           = 10000  # 100, 500, 1000  - number of total-iterations (dataset size)
 alpha       = 0.5   # in [0,1]; weight for loss: (1-alpha)Pss + alpha G2
 
 
@@ -74,7 +74,7 @@ start_time = time.time()
 
 topic = now.strftime("%_Y-%m-%d") + "_Nb{}_Nx{}Ny{}_z{}_steps{}".format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
 if learn_mode:
-    topic += "_loss_{}".format(loss_type) + "_alpha{}".format(alpha) + "_N{}".format(N)
+    topic += "_loss_{}".format(loss_type) + "_alpha{}".format(alpha) + "_N{}".format(N) + "_epochs{}".format(num_epochs)
 
 
 @jit
@@ -128,7 +128,7 @@ def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 targ
     if loss_type is 'l2':
         return (1-alpha)*l2_loss(P_ss, P_ss_t) + alpha*l2_loss(G2, G2t)
     if loss_type is 'kl':
-        return (1-alpha)*kl_loss(P_ss_t, P_ss, eps=1e-7)+alpha*kl_loss(G2t, G2, eps=1)
+        return (1-alpha)*kl_loss(P_ss, P_ss_t, eps=0)+alpha*kl_loss(G2, G2t, eps=1e-2)
     if loss_type is 'wass':
         return (1-alpha)*sinkhorn_loss(P_ss, P_ss_t, M, eps=1e-3, max_iters=100, stop_thresh=None) + \
                alpha*sinkhorn_loss(G2, G2t, n_coeff, eps=1e-3, max_iters=100, stop_thresh=None)
