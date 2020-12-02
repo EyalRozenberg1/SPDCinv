@@ -14,6 +14,8 @@ def calc_and_asserts(N, batch_size):
     assert N % num_devices == 0, "The number of examples should be divisible by the number of devices"
     assert batch_size % num_devices == 0, "The number of examples within a batch should be divisible by the number of devices"
 
+    print("Number of GPU devices: ", num_devices)
+
     return num_batches, Ndevice, batch_device, num_devices
 
 @jit

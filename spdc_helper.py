@@ -262,14 +262,14 @@ def Hermite_gause2Dxy(lam, W0x, W0y, n, m, z, x, y):
                 q0 * np.conj(qx) / (np.conj(q0) * qx)) ** (n / 2)
     Unx = coefx * HermiteP(n, np.sqrt(2) * x / Wx) * np.exp(-1j * k * ((x ** 2) * (1 / (2 * qx))))
 
-    W0 = np.sqrt(2 * W0y ** 2);
-    z0 = np.pi * W0 ** 2 / lam;  # Rayleigh range
-    Wy = W0y * np.sqrt(1 + (z / z0) ** 2);  # w(z), the variation of the spot size
-    invR = z / ((z ** 2) + (z0 ** 2));  # radius of curvature
-    qy = 1 / (invR - 1j * lam / (np.pi * (Wy ** 2)));  # the complex beam parameter
-    q0 = 1j * z0;
+    W0 = np.sqrt(2 * W0y ** 2)
+    z0 = np.pi * W0 ** 2 / lam  # Rayleigh range
+    Wy = W0y * np.sqrt(1 + (z / z0) ** 2)  # w(z), the variation of the spot size
+    invR = z / ((z ** 2) + (z0 ** 2))  # radius of curvature
+    qy = 1 / (invR - 1j * lam / (np.pi * (Wy ** 2)))  # the complex beam parameter
+    q0 = 1j * z0
     coefy = (2 / np.pi) ** 0.25 * np.sqrt(1 / (2 ** m * math.factorial(m) * W0y)) * np.sqrt(q0 / qy) * (
-                q0 * np.conj(qy) / (np.conj(q0) * qy)) ** (m / 2);
+                q0 * np.conj(qy) / (np.conj(q0) * qy)) ** (m / 2)
     Uny = coefy * HermiteP(m, np.sqrt(2) * y / Wy) * np.exp(-1j * k * ((y ** 2) * (1 / (2 * qy))))
 
     # plt.imshow(np.abs(np.dot(Uny.reshape(len(Unx),1),Unx.reshape(1,len(Unx)))))

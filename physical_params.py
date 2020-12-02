@@ -36,7 +36,7 @@ tau          = 1e-9  # [nanosec]
 # Experiment parameters
 coeffs_str = "my_custom"
 poling_str = "no_tr_phase"
-targert_folder = '2020-07-23_Nb100_Nx40Ny40_z0.005_steps500/'  # for loading targets for training
+targert_folder = '2020-11-13_Nb500_Nx30Ny30_z0.02_steps400_2/'  # for loading targets for training
 
 
 def HG_coeff_array(coeff_str, n_coeff):
@@ -57,7 +57,7 @@ def HG_coeff_array(coeff_str, n_coeff):
     else:
         assert "ERROR: incompatible HG coefficients-string"
 
-    coeffs    = coeffs / np.sum(np.abs(coeffs)**2)
+    coeffs    = coeffs / np.sqrt(np.sum(np.abs(coeffs)**2))
 
     return coeffs
 

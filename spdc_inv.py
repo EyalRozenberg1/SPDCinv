@@ -25,9 +25,9 @@ stats_path     = 'stats/'
 "Learning Hyperparameters"
 loss_type   = 'l1'  # l1:L1 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
 step_size   = 0.01
-num_epochs  = 50
-batch_size  = 100   # 10, 20, 50, 100 - number of iterations
-N           = 10000  # 100, 500, 1000  - number of total-iterations (dataset size)
+num_epochs  = 500
+batch_size  = 500   # 10, 20, 50, 100 - number of iterations
+N           = 500  # 100, 500, 1000  - number of total-iterations (dataset size)
 alpha       = 0.5   # in [0,1]; weight for loss: (1-alpha)Pss + alpha G2
 
 
@@ -72,7 +72,7 @@ print("--- the Taylor coefficients initiated are: {} ---\n".format(phi_parameter
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 start_time = time.time()
 
-topic = now.strftime("%_Y-%m-%d") + "_Nb{}_Nx{}Ny{}_z{}_steps{}".format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z))
+topic = now.strftime("%_Y-%m-%d") + "_Nb{}_Nx{}Ny{}_z{}_steps{}_devices{}".format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), Ndevice)
 if learn_mode:
     topic += "_loss_{}".format(loss_type) + "_alpha{}".format(alpha) + "_N{}".format(N) + "_epochs{}".format(num_epochs)
 
@@ -116,7 +116,7 @@ def forward(params, vac_):  # vac_ = vac_s, vac_i
 
 def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
     coeffs, phi_parameters = params[:n_coeff], params[n_coeff:]
-    coeffs = coeffs / np.sum(np.abs(coeffs)**2)
+    coeffs = coeffs / np.sqrt(np.sum(np.abs(coeffs)**2))
     params = np.concatenate((coeffs, phi_parameters))
 
     P_ss, G2 = forward(params, vac_)
@@ -191,7 +191,7 @@ if learn_mode:
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
         coeffs, phi_parameters = params[0][:n_coeff], params[0][n_coeff:]
-        coeffs = coeffs / np.sum(np.abs(coeffs)**2)
+        coeffs = coeffs / np.sqrt(np.sum(np.abs(coeffs)**2))
         l1_HG_loss.append(np.sum(np.abs(coeffs-coeffs_gt)))
         l2_HG_loss.append(np.sum((coeffs-coeffs_gt)**2))
         l1_tylor_loss.append(np.sum(np.abs(phi_parameters - phi_parameters_gt)))
