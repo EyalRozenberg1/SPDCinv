@@ -174,3 +174,23 @@ def sinkhorn_loss(P, Pt, M, eps, max_iters=100, stop_thresh=1e-3):
 
     # To get the distance as a number just compute the frobenius inner product <M, P>
     return (D * P).sum()
+
+
+##################
+# Trace Distance #
+##################
+@jit
+def TraceDist_loss(rho, sigma):
+    '''
+    Calculate the Trace Distance between rho and sigma
+    as depict in: https://en.wikipedia.org/wiki/Trace_distance#Definition
+    Parameters
+    ----------
+    rho: density matrix rho
+    sigma: density matrix sigma
+    Returns: Trace distance
+    -------
+    '''
+
+    T = 0.5 * np.trace(np.sqrt((rho - sigma).conj().T @ (rho - sigma)))
+    return T
