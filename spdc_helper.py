@@ -413,9 +413,8 @@ def fix_power1(E_fix, E_original, beam, crystal):
     return fix_power(E_fix, power, n, dx, dy)
 
 
-@jit
 def kron(a, b):
-    return (a[:,:, None, :, None] * b[:,None, :, None, :]).sum(0)
+    return lax.psum((a[:, :, None, :, None] * b[:, None, :, None, :]).sum(0), 'device')
 
 
 # @jit
