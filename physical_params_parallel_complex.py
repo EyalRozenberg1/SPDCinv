@@ -1,7 +1,7 @@
 from jax import numpy as np
 import jax.random as random
 from jax.ops import index_update
-from spdc_helper_parallel_complex import nz_MgCLN_Gayer
+from spdc_helper_parallel_complex import nz_KTP_Kato
 
 "Interaction Initialization"
 # Structure arrays - initialize crystal and structure arrays
@@ -20,18 +20,18 @@ dk_offset = 1  # delta_k offset
 
 projection_type = 'LG'  # type of projection + pump modes
 
-# LG number of modes for the pump + projections
+# LG number of modes for projections
 max_mode_p = 1
 max_mode_l = 4
 
-# HG number of modes for the pump + projections
+# HG number of modes for projections
 max_mode_x = 10
 max_mode_y = 1
 
 # pump
-lam_pump = 532e-9
+lam_pump = 404e-9
 delta = 1
-k = 2 * np.pi * nz_MgCLN_Gayer(lam_pump * 1e6, Temperature) / lam_pump
+k = 2 * np.pi * nz_KTP_Kato(lam_pump * 1e6, Temperature) / lam_pump
 waist_pump = 40e-6 # delta * np.sqrt(MaxZ / k)  # according to L_crystal = 2*pi*(w0)^2*n/lambda, we get w_p = sqrt(L/k) -> w_s =sqrt(2).
 power_pump = 1e-3
 # signal
@@ -44,7 +44,7 @@ power_idler = 1
 tau = 1e-9  # [nanosec]
 
 # Experiment parameters
-coeffs_str = "LG00"
+coeffs_str = "LG_uniform"
 poling_str = "no_tr_phase"
 targert_folder = 'LG_target/'  # for loading targets for training
 
@@ -89,11 +89,11 @@ def HG_coeff_array(coeff_str, n_coeff):  # TODO: change HG_coeff_array name to a
         coeffs_real = np.zeros(n_coeff, dtype=np.float32)
         coeffs_real = index_update(coeffs_real, max_mode_l - 4, 0)
         coeffs_real = index_update(coeffs_real, max_mode_l - 3, 0)
-        coeffs_real = index_update(coeffs_real, max_mode_l - 2, np.sqrt(2))
+        coeffs_real = index_update(coeffs_real, max_mode_l - 2, 0)
         coeffs_real = index_update(coeffs_real, max_mode_l - 1, 0)
         coeffs_real = index_update(coeffs_real, max_mode_l, 1)
         coeffs_real = index_update(coeffs_real, max_mode_l + 1, 0)
-        coeffs_real = index_update(coeffs_real, max_mode_l + 2, np.sqrt(2))
+        coeffs_real = index_update(coeffs_real, max_mode_l + 2, 0)
         coeffs_real = index_update(coeffs_real, max_mode_l + 3, 0)
         coeffs_real = index_update(coeffs_real, max_mode_l + 4, 0)
 
@@ -108,6 +108,28 @@ def HG_coeff_array(coeff_str, n_coeff):  # TODO: change HG_coeff_array name to a
         coeffs_imag = index_update(coeffs_imag, max_mode_l + 3, 0)
         coeffs_imag = index_update(coeffs_imag, max_mode_l + 4, 0)
 
+    elif (coeff_str == "LG_uniform"):
+        coeffs_real = np.zeros(n_coeff, dtype=np.float32)
+        coeffs_real = index_update(coeffs_real, max_mode_l - 4, 1)
+        coeffs_real = index_update(coeffs_real, max_mode_l - 3, 1)
+        coeffs_real = index_update(coeffs_real, max_mode_l - 2, 1)
+        coeffs_real = index_update(coeffs_real, max_mode_l - 1, 1)
+        coeffs_real = index_update(coeffs_real, max_mode_l, 1)
+        coeffs_real = index_update(coeffs_real, max_mode_l + 1, 1)
+        coeffs_real = index_update(coeffs_real, max_mode_l + 2, 1)
+        coeffs_real = index_update(coeffs_real, max_mode_l + 3, 1)
+        coeffs_real = index_update(coeffs_real, max_mode_l + 4, 1)
+
+        coeffs_imag = np.zeros(n_coeff, dtype=np.float32)
+        coeffs_imag = index_update(coeffs_imag, max_mode_l - 4, 1)
+        coeffs_imag = index_update(coeffs_imag, max_mode_l - 3, 1)
+        coeffs_imag = index_update(coeffs_imag, max_mode_l - 2, 1)
+        coeffs_imag = index_update(coeffs_imag, max_mode_l - 1, 1)
+        coeffs_imag = index_update(coeffs_imag, max_mode_l, 1)
+        coeffs_imag = index_update(coeffs_imag, max_mode_l + 1, 1)
+        coeffs_imag = index_update(coeffs_imag, max_mode_l + 2, 1)
+        coeffs_imag = index_update(coeffs_imag, max_mode_l + 3, 1)
+        coeffs_imag = index_update(coeffs_imag, max_mode_l + 4, 1)
     elif (coeff_str == "HG01"):
         coeffs = np.zeros(n_coeff, dtype=complex)
         coeffs = index_update(coeffs, 1, 1.0)

@@ -58,7 +58,7 @@ class Crystal:
         self.x = np.arange(-MaxX, MaxX, dx)  # x axis, length 2*MaxX (transverse)
         self.y = np.arange(-MaxY, MaxY, dy)  # y axis, length 2*MaxY  (transverse)
         self.z = np.arange(-MaxZ / 2, MaxZ / 2, dz)  # z axis, length MaxZ (propagation)
-        self.ctype = nz_MgCLN_Gayer  # refractive index function
+        self.ctype = nz_KTP_Kato  # refractive index function
         # self.slab = PP_crystal_slab_2D
         self.d = d
         self.poling_period = period

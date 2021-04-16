@@ -4,19 +4,15 @@ from spdc_helper_parallel_complex import kron, kron1
 from jax.lib import xla_bridge
 
 
-def calc_and_asserts(N, batch_size):
-    num_devices = xla_bridge.device_count()
-    num_batches = int(N / batch_size)
-    Ndevice = int(N / num_devices)
-    batch_device = int(batch_size / num_devices)
+def calc_and_asserts(N):
+    num_devices  = xla_bridge.device_count()
+    batch_device = int(N / num_devices)
 
-    assert N % batch_size == 0, "num_batches should be 'signed integer'"
     assert N % num_devices == 0, "The number of examples should be divisible by the number of devices"
-    assert batch_size % num_devices == 0, "The number of examples within a batch should be divisible by the number of devices"
 
     print(f'Number of GPU devices: {num_devices} \n')
 
-    return num_batches, Ndevice, batch_device, num_devices
+    return batch_device, num_devices
 
 @jit
 def G2_calc(a, b, c, batch_size):

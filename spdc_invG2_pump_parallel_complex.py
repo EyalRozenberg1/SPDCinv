@@ -3,7 +3,7 @@ from __future__ import print_function, division, absolute_import
 import os
 os.environ["JAX_ENABLE_X64"] = 'True'
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = 'platform'
-os.environ["CUDA_VISIBLE_DEVICES"] = '4'
+os.environ["CUDA_VISIBLE_DEVICES"] = '4,5'
 
 from loss_funcs_parallel_complex import l1_loss, kl_loss, sinkhorn_loss, l2_loss
 from spdc_helper_parallel_complex import *
@@ -15,9 +15,9 @@ now = datetime.now()
 print("\n date and time =", now.strftime("%d/%m/%Y %H:%M:%S"))
 start_time_initialization = time.time()
 
-learn_mode = False  # learn/infer
+learn_mode = True  # learn/infer
 save_stats = True
-show_res = False  # display results 0/1
+show_res = True  # display results 0/1
 save_res = True  # save results
 save_tgt = False  # save targets
 
@@ -25,16 +25,16 @@ res_path = 'results/'  # path to results folder
 Pt_path = 'targets/'  # path to targets folder
 stats_path = 'stats/'
 
-seed = 1800
+seed = 1989
 
 "Learning Hyperparameters"
 loss_type = 'kl_sparse_balanced'  # l1:L1 Norm, kl:Kullback Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
 step_size = 0.05
 num_epochs = 200
-batch_size = 200  # 10, 20, 50, 100 - number of iterations #keep batch_size and N the same size!!!
-N = batch_size  # batch_size   # 100, 500, 1000  - number of total-iterations (dataset size)
+N           = 1000  # 100, 500, 1000  - number of total-iterations for learning (dataset size)
+N_inference = 4000  # 100, 500, 1000  - number of total-iterations for inference (dataset size)
 
-num_batches, Ndevice, batch_device, num_devices = calc_and_asserts(N, batch_size)
+batch_device, num_devices = calc_and_asserts(N)
 
 "Interaction Initialization"
 # Structure arrays - initialize crystal and structure arrays
@@ -46,7 +46,7 @@ n_coeff, max_mode1, max_mode2, max_mode_crystal = projection_crystal_modes()
 Pump = Beam(lam_pump, PP_crystal, Temperature, waist_pump, power_pump, projection_type, max_mode1,
             max_mode2)  # wavelength, crystal, tmperature,waist,power, maxmode
 Signal = Beam(lam_signal, PP_crystal, Temperature, np.sqrt(2) * Pump.waist, power_signal, projection_type, max_mode1,
-              max_mode2, z=MaxZ / 2)
+              max_mode2, z=0)
 Idler = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_crystal, Temperature, np.sqrt(2) * Pump.waist, power_signal,
              projection_type)
 
@@ -72,11 +72,11 @@ print("--- the LG coefficients initiated are: {} ---\n".format(coeffs_real + 1j 
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 start_time = time.time()
 
-topic = now.strftime("%_Y-%m-%d") + "_Nb{}_N{}_Nx{}Ny{}_z{}_steps{}_#devices{}".format(
-    batch_size, N,  Nx, Ny, PP_crystal.MaxZ, len(PP_crystal.z), num_devices)
+topic = now.strftime("%_Y-%m-%d") + "_N_infer{}_Nx{}Ny{}_z{}_steps{}_#devices{}".format(
+    N_inference, Nx, Ny, PP_crystal.MaxZ, len(PP_crystal.z), num_devices)
 
 if learn_mode:
-    topic += "_loss_{}".format(loss_type) + "_epochs{}".format(num_epochs) + "_complex"
+    topic += "_N_learn{}".format(N) + "_loss_{}".format(loss_type) + "_epochs{}".format(num_epochs) + "_complex"
 
 
 def forward(coeffs, key):
@@ -94,16 +94,26 @@ def forward(coeffs, key):
     # Propagate through the crystal:
     crystal_prop(Pump, Siganl_field, Idler_field, PP_crystal)
 
-    E_s_out = decompose(Siganl_field.E_out, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
-    E_i_out = decompose(Idler_field.E_out, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
-    E_i_vac = decompose(Idler_field.E_vac, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
+    ## Propagate generated fields back to the middle of the crystal
+    DeltaZ = -MaxZ / 2
+
+    E_s_out_prop = propagate(Siganl_field.E_out, PP_crystal.x, PP_crystal.y, Siganl_field.k, DeltaZ) * np.exp(
+        -1j * Siganl_field.k * DeltaZ)
+    E_i_out_prop = propagate(Idler_field.E_out, PP_crystal.x, PP_crystal.y, Idler_field.k, DeltaZ) * np.exp(
+        -1j * Idler_field.k * DeltaZ)
+    E_i_vac_prop = propagate(Idler_field.E_vac, PP_crystal.x, PP_crystal.y, Idler_field.k, DeltaZ) * np.exp(
+        -1j * Idler_field.k * DeltaZ)
+
+    E_s_out = decompose(E_s_out_prop, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
+    E_i_out = decompose(E_i_out_prop, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
+    E_i_vac = decompose(E_i_vac_prop, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
 
     # say there are no higher modes by normalizing the power
     E_s_out = fix_power1(E_s_out, Siganl_field.E_out, Signal, PP_crystal)
     E_i_out = fix_power1(E_i_out, Idler_field.E_out, Signal, PP_crystal)
     E_i_vac = fix_power1(E_i_vac, Idler_field.E_vac, Signal, PP_crystal)
 
-    G2 = G2_calc(E_s_out, E_i_out, E_i_vac, batch_size).reshape(max_mode2 * max_mode2, max_mode1 * max_mode1)
+    G2 = G2_calc(E_s_out, E_i_out, E_i_vac, N).reshape(max_mode2 * max_mode2, max_mode1 * max_mode1)
     return G2
 
 
@@ -175,14 +185,13 @@ if learn_mode:
         obj_loss_epoch = 0.0
         start_time_epoch = time.time()
         print("Epoch {}/{} is running".format(epoch, num_epochs))
-        for i in range(num_batches):
-            # seed vacuum samples
-            keys = random.split(random.PRNGKey(seed), num_devices)
-            idx = np.array([epoch + i]).repeat(num_devices)
-            batch_loss, opt_state = update(opt_state, idx, keys, G2t)
-            obj_loss_epoch += batch_loss[0].item()
+        # seed vacuum samples
+        keys = random.split(random.PRNGKey(seed + epoch), num_devices)
+        idx = np.array([epoch]).repeat(num_devices)
+        batch_loss, opt_state = update(opt_state, idx, keys, G2t)
+        obj_loss_epoch += batch_loss[0].item()
         curr_coeffs = get_params(opt_state)
-        obj_loss.append(obj_loss_epoch / (i + 1))
+        obj_loss.append(obj_loss_epoch)
         epoch_time = time.time() - start_time_epoch
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
@@ -249,14 +258,16 @@ if learn_mode:
 # show last epoch result
 if save_res or save_tgt or show_res:
     print("--- inference mode ---")
-    N_res = batch_size
+    N          = N_inference  # number of total-iterations (dataset size)
+
+    batch_device, num_devices = calc_and_asserts(N)
     ###########################################
     # Set dataset
     ##########################################
     # Build a dataset of pairs Ai_vac, As_vac
 
     # seed vacuum samples for each gpu
-    keys = random.split(random.PRNGKey(seed), num_devices)
+    keys = random.split(random.PRNGKey(seed * 1986), num_devices)
 
     G2 = pmap(forward, axis_name='device')(coeffs, keys)
     G2 = G2[0]
