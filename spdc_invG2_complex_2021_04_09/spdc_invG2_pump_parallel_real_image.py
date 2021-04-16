@@ -1,22 +1,22 @@
 from __future__ import print_function, division, absolute_import
 from loss_funcs_parallel_complex import l1_loss, kl_loss, sinkhorn_loss, l2_loss
-from spdc_helper import *
+from spdc_helper_parallel_complex import *
 from spdc_funcs_parallel_complex import *
-from physical_params import *
+from physical_params_parallel_complex import *
 
-JAX_ENABLE_X64 = True
+os.environ["JAX_ENABLE_X64"] = 'True'
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = 'platform'
-os.environ["CUDA_VISIBLE_DEVICES"] = '0, 1, 2, 3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2,3'
 
 # datetime object containing current date and time
 now       = datetime.now()
-print("date and time =", now.strftime("%d/%m/%Y %H:%M:%S"))
+print("\n date and time =", now.strftime("%d/%m/%Y %H:%M:%S"))
 start_time_initialization = time.time()
 
-learn_mode = False  # learn/infer
+learn_mode = True  # learn/infer
 save_stats = True
-show_res   = True   # display results 0/1
-save_res   = False  # save results
+show_res   = False   # display results 0/1
+save_res   = True  # save results
 save_tgt   = False  # save targets
 
 res_path       = 'results/'  # path to results folder
@@ -24,14 +24,12 @@ Pt_path        = 'targets/'  # path to targets folder
 stats_path     = 'stats/'
 
 "Learning Hyperparameters"
-loss_type      = 'l1'  # l1:L1 Norm, kl:Kullback Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
-step_size      = 0.05
-num_epochs     = 218
-batch_size     = 300   # 10, 20, 50, 100 - number of iterations #keep batch_size and N the same size!!!
-N              = 300   # batch_size   # 100, 500, 1000  - number of total-iterations (dataset size)
+loss_type   = 'kl_sparse_balanced'  # l1:L1 Norm, kl:Kullback Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
+step_size   = 0.05
+num_epochs  = 200
+batch_size  = 200   # 10, 20, 50, 100 - number of iterations #keep batch_size and N the same size!!!
+N           = batch_size   # batch_size   # 100, 500, 1000  - number of total-iterations (dataset size)
 
-" Whether to stop training early if there is no test loss improvement for this number of epochs"
-early_stopping = 50  # select None to ignore
 
 num_batches, Ndevice, batch_device, num_devices = calc_and_asserts(N, batch_size)
 
@@ -41,7 +39,7 @@ PP_crystal  = Crystal(dx, dy, dz, MaxX, MaxY, MaxZ, d33)
 M           = len(PP_crystal.x)  # simulation size
 
 
-n_coeff, max_mode1, max_mode2, max_mode_crystal = projection_crystal_modes()
+n_coeff, max_mode1, max_mode2 , max_mode_crystal= projection_crystal_modes()
 
 Pump     = Beam(lam_pump, PP_crystal, Temperature, waist_pump, power_pump, projection_type, max_mode1, max_mode2)  # wavelength, crystal, tmperature,waist,power, maxmode
 Signal   = Beam(lam_signal, PP_crystal, Temperature, np.sqrt(2)*Pump.waist, power_signal, projection_type, max_mode1, max_mode2, z=MaxZ/2)
@@ -59,23 +57,13 @@ g1_ss_normalization = G1_Normalization(Signal.w)
 g1_ii_normalization = G1_Normalization(Idler.w)
 
 # Initialize pump and crystal coefficients
-coeffs         = HG_coeff_array(coeffs_str, max_mode1*max_mode2)
-poling_parameters = poling_array_init(poling_str, max_mode1*max_mode_crystal)
-
-#Settings for Fourier-Bessel or Hermite-Gauss crystal hologram
-if projection_type == 'LG':
-    Poling = Poling_profile(phi_scale, r_scale, PP_crystal.x, PP_crystal.y,  PP_crystal.MaxX, int((max_mode1-1)/2), max_mode_crystal, 'fourier_hankel')
-elif projection_type == 'HG':
-    Poling = Poling_profile(phi_scale, r_scale, PP_crystal.x, PP_crystal.y,  PP_crystal.MaxX, max_mode1, max_mode_crystal, 'hermite')
-
-Poling.create_profile(poling_parameters)
+coeffs_real, coeffs_imag            = HG_coeff_array(coeffs_str, max_mode1*max_mode2)
 
 # replicate parameters for gpus
-# coeffs = pmap(lambda x: coeffs)(np.arange(num_devices))
+coeffs = pmap(lambda x: np.concatenate((coeffs_real, coeffs_imag)))(np.arange(num_devices))
 
-
-print("--- the LG coefficients initiated are: {} ---\n".format(coeffs))
-print("--- the Crystal coefficients initiated are: {} ---\n".format(poling_parameters))
+print("--- Pump waist {:.2f}um for Crystal length {}m ---\n".format(waist_pump*1e6, MaxZ))
+print("--- the LG coefficients initiated are: {} ---\n".format(coeffs_real + 1j*coeffs_imag))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 start_time = time.time()
 
@@ -83,11 +71,11 @@ topic = now.strftime("%_Y-%m-%d") + "_Nb{}_Nx{}Ny{}_z{}_steps{}_#devices{}".form
     batch_size, Nx, Ny, PP_crystal.MaxZ, len(PP_crystal.z), num_devices)
 
 if learn_mode:
-    topic += "_loss_{}".format(loss_type) + "_N{}".format(N) + "_epochs{}".format(num_epochs)
+    topic += "_loss_{}".format(loss_type) + "_N{}".format(N) + "_epochs{}".format(num_epochs) + "_complex"
 
-@partial(pmap, axis_name='device')
+
 def forward(coeffs, key):
-
+    coeffs_real, coeffs_imag = coeffs[:n_coeff], coeffs[n_coeff:2*n_coeff]
     # batch_device iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
     vac_ = random.normal(key, (batch_device, 2, 2, Nx, Ny))
 
@@ -96,10 +84,10 @@ def forward(coeffs, key):
     Idler_field     = Field(Idler, PP_crystal, vac_[:, 1], batch_device)
 
     # current pump structure
-    Pump.create_profile(coeffs)
+    Pump.create_profile(coeffs_real + 1j*coeffs_imag)
 
     # Propagate through the crystal:
-    crystal_prop(Pump, Siganl_field, Idler_field, PP_crystal, Poling)
+    crystal_prop(Pump, Siganl_field, Idler_field, PP_crystal)
 
     E_s_out = decompose(Siganl_field.E_out, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
     E_i_out = decompose(Idler_field.E_out, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
@@ -115,12 +103,12 @@ def forward(coeffs, key):
 
 
 def loss(coeffs, key, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
-    coeffs = coeffs / np.sqrt(np.sum(np.abs(coeffs)**2))
+    coeffs_real, coeffs_imag = coeffs[:n_coeff], coeffs[n_coeff:2*n_coeff]
+    normalization  = np.sqrt(np.sum(np.abs(coeffs_real)**2 + np.abs(coeffs_imag)**2))
+    coeffs_real    = coeffs_real / normalization
+    coeffs_imag    = coeffs_imag / normalization
 
-    G2t    = pmap(lambda x: G2t)(np.arange(num_devices))
-    coeffs = pmap(lambda x: coeffs)(np.arange(num_devices))
-
-    G2       = forward(coeffs, key)
+    G2       = forward(np.concatenate((coeffs_real, coeffs_imag)), key)
     G2       = G2 / np.sum(np.abs(G2))
 
     if loss_type is 'l1':
@@ -129,73 +117,92 @@ def loss(coeffs, key, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correl
         return l2_loss(G2, G2t)
     if loss_type is 'kl':
         return kl_loss(G2, G2t, eps=1e-2)
+    if loss_type is 'kl_sparse':
+        return 0.5*kl_loss(G2, G2t, eps=1e-2) + 0.5*l1_loss(G2[..., onp.delete(onp.arange(n_coeff**2), [30, 40, 50])])
+    if loss_type is 'kl_sparse_balanced':
+        return 0.5 * kl_loss(G2, G2t, eps=1e-2) + \
+               0.25 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff ** 2), [30, 40, 50])]) + \
+               0.25 * (
+                       np.sum(np.abs(G2[..., 30] - G2[..., 40])) + 
+                       np.sum(np.abs(G2[..., 30] - G2[..., 50])) + 
+                       np.sum(np.abs(G2[..., 40] - G2[..., 50])))
+    if loss_type is 'sparse_balanced':
+        return 0.5 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff ** 2), [30, 40, 50])]) + \
+               0.5 * (
+                      np.sum(np.abs(G2[..., 30] - G2[..., 40])) +
+                      np.sum(np.abs(G2[..., 30] - G2[..., 50])) +
+                      np.sum(np.abs(G2[..., 40] - G2[..., 50])))
+    if loss_type is 'kl_l1':
+        return 0.5*kl_loss(G2, G2t, eps=1e-2) + 0.5*l1_loss(G2, G2t)
+    if loss_type is 'kl_l2':
+        return 0.5*kl_loss(G2, G2t, eps=1e-2) + 0.5*l2_loss(G2, G2t)
     if loss_type is 'wass':
         return sinkhorn_loss(G2, G2t, n_coeff, eps=1e-3, max_iters=100, stop_thresh=None)
     else:
         raise Exception('Nonstandard loss choice')
 
 
-def update(opt_state, keys, G2t):
+@partial(pmap, axis_name='device')
+def update(opt_state, i, key, G2t):
     coeffs              = get_params(opt_state)
-    batch_loss, grads   = value_and_grad(loss)(coeffs, keys, G2t)
-    # grads = np.array([lax.psum(dw, 'device') for dw in grads])
-    # return lax.pmean(batch_loss, 'device'), opt_update(i, grads, opt_state)
-    return batch_loss, opt_update(i, grads, opt_state)
+    batch_loss, grads   = value_and_grad(loss)(coeffs, key, G2t)
+    grads = np.array([lax.psum(dw, 'device') for dw in grads])
+    return lax.pmean(batch_loss, 'device'), opt_update(i, grads, opt_state)
 
 if learn_mode:
     print("--- training mode ---")
     # load target P, G2
-    G2t       = np.load(Pt_path + targert_folder + 'G2.npy')
+    G2t       = pmap(lambda x: np.load(Pt_path + targert_folder + 'G2.npy'))(np.arange(num_devices))
     coeffs_gt = np.load(Pt_path + targert_folder + 'HG_coeffs.npy')
 
-    assert len(coeffs) == len(coeffs_gt), "HG parameters and its ground truth must contain same length"
+    assert len(coeffs_real + 1j*coeffs_imag) == len(coeffs_gt), "HG parameters and its ground truth must contain same length"
 
     # Use optimizers to set optimizer initialization and update functions
     opt_init, opt_update, get_params = optimizers.adam(step_size, b1=0.9, b2=0.999, eps=1e-08)
     opt_state = opt_init(coeffs)
     obj_loss, best_obj_loss = [], None
     epochs_without_improvement = 0
-    l1_pump_coeffs_loss, l2_pump_coeffs_loss = [], []
+    l1_HG_loss, l2_HG_loss = [], []
     for epoch in range(num_epochs):
         obj_loss_epoch = 0.0
         start_time_epoch = time.time()
         print("Epoch {}/{} is running".format(epoch, num_epochs))
         for i in range(num_batches):
             # seed vacuum samples
-            keys = random.split(random.PRNGKey(i + epoch), num_devices)
-            batch_loss, opt_state = update(opt_state, keys, G2t)
-            obj_loss_epoch += batch_loss.item()
+            keys = random.split(random.PRNGKey(epoch + i), num_devices)
+            idx = np.array([epoch + i]).repeat(num_devices)
+            batch_loss, opt_state = update(opt_state, idx, keys, G2t)
+            obj_loss_epoch += batch_loss[0].item()
         curr_coeffs = get_params(opt_state)
         obj_loss.append(obj_loss_epoch/(i + 1))
         epoch_time = time.time() - start_time_epoch
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
+        
+        coeffs_real, coeffs_imag = curr_coeffs[:, :n_coeff], curr_coeffs[:, n_coeff:2*n_coeff]
+        normalization  = np.sqrt(np.sum(np.abs(coeffs_real)**2 + np.abs(coeffs_imag)**2, 1, keepdims=True))
+        coeffs_real    = coeffs_real / normalization
+        coeffs_imag    = coeffs_imag / normalization
+        curr_coeffs    = np.concatenate((coeffs_real, coeffs_imag), 1)
+        
+        coeffs_ = coeffs_real[0] + 1j*coeffs_imag[0]
 
-        # curr_coeffs = curr_coeffs / np.sqrt(np.sum(np.abs(curr_coeffs)**2, 1, keepdims=True))
-        curr_coeffs = curr_coeffs / np.sqrt(np.sum(np.abs(curr_coeffs) ** 2))
+        l1_HG_loss.append(np.sum(np.abs(coeffs_ - coeffs_gt)))
+        l2_HG_loss.append(np.sum(np.abs(coeffs_ - coeffs_gt)**2))
+        print("optimized LG coefficients: {}".format(coeffs_))
+        print("Norm of LG coefficients: {}".format(np.sum((np.abs(coeffs_))**2)))
 
-        l1_pump_coeffs_loss.append(np.sum(np.abs(curr_coeffs - coeffs_gt)))
-        l2_pump_coeffs_loss.append(np.sum((curr_coeffs - coeffs_gt)**2))
-        print("optimized LG coefficients: {}".format(curr_coeffs))
-        print("Norm of LG coefficients: {}".format(np.sum((np.abs(curr_coeffs))**2)))
         print("objective loss:{:0.6f}".format(obj_loss[epoch]))
-
+    
         if best_obj_loss is None or obj_loss[epoch] < best_obj_loss:
             best_obj_loss = obj_loss[epoch]
             epochs_without_improvement = 0
             coeffs = curr_coeffs
-            print(f'\n*** best objective loss updated at epoch {epoch + 1} after ')
-
+            print(f'\n*** best objective loss updated at epoch {epoch}')
         else:
             epochs_without_improvement += 1
-
-            if early_stopping is not None:
-                if epochs_without_improvement >= early_stopping:
-                    print(f'\n*** Early stopping triggered at epoch '
-                          f'{epoch + 1} after '
-                          f'{epochs_without_improvement} epochs '
-                          f'without improvement')
-                    break
+            print(f'\n*** Number of epochs without improvement {epochs_without_improvement}')
+            
 
     print("--- training time: %s seconds ---" % (time.time() - start_time))
 
@@ -206,7 +213,7 @@ if learn_mode:
     else:
         os.makedirs(curr_dir)
     exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
-    exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
+    exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs[0, :n_coeff] + 1j*coeffs[0, n_coeff:2*n_coeff], coeffs_str, coeffs_gt))
     exp_details.close()
 
     plt.plot(obj_loss, 'r')
@@ -220,8 +227,8 @@ if learn_mode:
     plt.close()
 
 
-    plt.plot(l1_pump_coeffs_loss, 'r', label='L1')
-    plt.plot(l2_pump_coeffs_loss, 'b', label='L2')
+    plt.plot(l1_HG_loss, 'r', label='L1')
+    plt.plot(l2_HG_loss, 'b', label='L2')
     plt.title('HG coefficients')
     plt.ylabel('measure loss')
     plt.xlabel('#epoch')
@@ -244,10 +251,9 @@ if save_res or save_tgt or show_res:
     # seed vacuum samples for each gpu
     keys = random.split(random.PRNGKey(1986), num_devices)
 
-    coeffs = pmap(lambda x: coeffs)(np.arange(num_devices))
     G2       = pmap(forward, axis_name='device')(coeffs, keys)
     G2       = G2[0]
-    coeffs   = coeffs[0]
+    coeffs   = coeffs[0, :n_coeff] + 1j*coeffs[0, n_coeff:2*n_coeff]
 
     if save_tgt:
         print("--- saving targets ---")
@@ -267,10 +273,8 @@ if save_res or save_tgt or show_res:
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
-            exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str))
         else:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
-            exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str))
         exp_details.close()
 
     if show_res or save_res:
@@ -337,7 +341,8 @@ if save_res or save_tgt or show_res:
             plt.show()
 
         #Save arrays
-        np.save(curr_dir + '/' + 'PumpCoeffs.npy', coeffs)
+        np.save(curr_dir + '/' + 'PumpCoeffs_real.npy', coeffs.real)
+        np.save(curr_dir + '/' + 'PumpCoeffs_imag.npy', coeffs.imag)
         np.save(curr_dir + '/' + 'G2.npy', G2)
 
         

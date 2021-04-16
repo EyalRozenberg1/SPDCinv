@@ -4,19 +4,19 @@ from spdc_helper import *
 from spdc_funcs_parallel_complex import *
 from physical_params import *
 
-JAX_ENABLE_X64 = True
+JAX_ENABLE_X64 = False
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = 'platform'
-os.environ["CUDA_VISIBLE_DEVICES"] = '0, 1, 2, 3'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2,3'
 
 # datetime object containing current date and time
 now       = datetime.now()
 print("date and time =", now.strftime("%d/%m/%Y %H:%M:%S"))
 start_time_initialization = time.time()
 
-learn_mode = False  # learn/infer
+learn_mode = True  # learn/infer
 save_stats = True
 show_res   = True   # display results 0/1
-save_res   = False  # save results
+save_res   = True  # save results
 save_tgt   = False  # save targets
 
 res_path       = 'results/'  # path to results folder
@@ -24,14 +24,12 @@ Pt_path        = 'targets/'  # path to targets folder
 stats_path     = 'stats/'
 
 "Learning Hyperparameters"
-loss_type      = 'l1'  # l1:L1 Norm, kl:Kullback Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
-step_size      = 0.05
-num_epochs     = 218
-batch_size     = 300   # 10, 20, 50, 100 - number of iterations #keep batch_size and N the same size!!!
-N              = 300   # batch_size   # 100, 500, 1000  - number of total-iterations (dataset size)
+loss_type   = 'l1'  # l1:L1 Norm, kl:Kullback Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
+step_size   = 0.05
+num_epochs  = 201
+batch_size  = 200   # 10, 20, 50, 100 - number of iterations #keep batch_size and N the same size!!!
+N           = 200 #batch_size   # 100, 500, 1000  - number of total-iterations (dataset size)
 
-" Whether to stop training early if there is no test loss improvement for this number of epochs"
-early_stopping = 50  # select None to ignore
 
 num_batches, Ndevice, batch_device, num_devices = calc_and_asserts(N, batch_size)
 
@@ -41,7 +39,7 @@ PP_crystal  = Crystal(dx, dy, dz, MaxX, MaxY, MaxZ, d33)
 M           = len(PP_crystal.x)  # simulation size
 
 
-n_coeff, max_mode1, max_mode2, max_mode_crystal = projection_crystal_modes()
+n_coeff, max_mode1, max_mode2 , max_mode_crystal= projection_crystal_modes()
 
 Pump     = Beam(lam_pump, PP_crystal, Temperature, waist_pump, power_pump, projection_type, max_mode1, max_mode2)  # wavelength, crystal, tmperature,waist,power, maxmode
 Signal   = Beam(lam_signal, PP_crystal, Temperature, np.sqrt(2)*Pump.waist, power_signal, projection_type, max_mode1, max_mode2, z=MaxZ/2)
@@ -68,61 +66,89 @@ if projection_type == 'LG':
 elif projection_type == 'HG':
     Poling = Poling_profile(phi_scale, r_scale, PP_crystal.x, PP_crystal.y,  PP_crystal.MaxX, max_mode1, max_mode_crystal, 'hermite')
 
+
 Poling.create_profile(poling_parameters)
 
-# replicate parameters for gpus
-# coeffs = pmap(lambda x: coeffs)(np.arange(num_devices))
 
+# replicate parameters for gpus
+
+params = coeffs
+# params = pmap(lambda x: coeffs)(np.arange(num_devices))
 
 print("--- the LG coefficients initiated are: {} ---\n".format(coeffs))
-print("--- the Crystal coefficients initiated are: {} ---\n".format(poling_parameters))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 start_time = time.time()
 
-topic = now.strftime("%_Y-%m-%d") + "_Nb{}_Nx{}Ny{}_z{}_steps{}_#devices{}".format(
+topic = now.strftime("%_Y-%m-%d") + "_Nb{}_Nx{}Ny{}_z{}_steps{}_#GPUs{}".format(
     batch_size, Nx, Ny, PP_crystal.MaxZ, len(PP_crystal.z), num_devices)
-
 if learn_mode:
     topic += "_loss_{}".format(loss_type) + "_N{}".format(N) + "_epochs{}".format(num_epochs)
 
-@partial(pmap, axis_name='device')
-def forward(coeffs, key):
 
-    # batch_device iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
-    vac_ = random.normal(key, (batch_device, 2, 2, Nx, Ny))
+# @jit
+@partial(pmap, axis_name='device')
+def forward(params, vac_):  # vac_ = vac_s, vac_i
+    N = vac_.shape[0]
+
+    coeffs = params
 
     # initialize the vacuum and output fields:
-    Siganl_field    = Field(Signal, PP_crystal, vac_[:, 0], batch_device)
-    Idler_field     = Field(Idler, PP_crystal, vac_[:, 1], batch_device)
+    Siganl_field    = Field(Signal, PP_crystal, vac_[:, 0], N)
+    Idler_field     = Field(Idler, PP_crystal, vac_[:, 1], N)
 
     # current pump structure
     Pump.create_profile(coeffs)
 
     # Propagate through the crystal:
     crystal_prop(Pump, Siganl_field, Idler_field, PP_crystal, Poling)
-
-    E_s_out = decompose(Siganl_field.E_out, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
-    E_i_out = decompose(Idler_field.E_out, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
-    E_i_vac = decompose(Idler_field.E_vac, Signal.hermite_arr).reshape(batch_device, max_mode2, max_mode1)
-
+    #WAS: reshape(N, max_mode1, max_mode2)
+    E_s_out = decompose(Siganl_field.E_out, Signal.hermite_arr).reshape(N, max_mode2, max_mode1)
+    E_i_out = decompose(Idler_field.E_out, Signal.hermite_arr).reshape(N, max_mode2, max_mode1)
+    E_i_vac = decompose(Idler_field.E_vac, Signal.hermite_arr).reshape(N, max_mode2, max_mode1)
     # say there are no higher modes by normalizing the power
     E_s_out = fix_power1(E_s_out, Siganl_field.E_out, Signal, PP_crystal)
     E_i_out = fix_power1(E_i_out, Idler_field.E_out, Signal, PP_crystal)
     E_i_vac = fix_power1(E_i_vac, Idler_field.E_vac, Signal, PP_crystal)
 
-    G2   = G2_calc(E_s_out, E_i_out, E_i_vac, batch_size).reshape(max_mode2*max_mode2, max_mode1*max_mode1)
-    return G2
+    #WAS: .reshape(max_mode1*max_mode1, max_mode2*max_mode2)
+    # G2   = G2_calc(E_s_out, E_i_out, E_i_vac, batch_size).reshape(max_mode2*max_mode2, max_mode1*max_mode1)
+    # return G2
+
+    # G1_ss = lax.psum(kron(np.conj(E_s_out), E_s_out) / batch_device, 'device')
+    # G1_ii = lax.psum(kron(np.conj(E_i_out), E_i_out) / batch_device, 'device')
+    # G1_si = lax.psum(kron(np.conj(E_i_out), E_s_out) / batch_device, 'device')
+    # G1_si_dagger = lax.psum(kron(np.conj(E_s_out), E_i_out) / batch_device, 'device')
+    # Q_si = lax.psum(kron(E_i_vac, E_s_out) / batch_device, 'device')
+    # Q_si_dagger = lax.psum(kron(np.conj(E_s_out), np.conj(E_i_vac)) / batch_device, 'device')
+    # G2 = (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).reshape(max_mode2*max_mode2, max_mode1*max_mode1).real
+    # return G2
+
+    return E_s_out, E_i_out, E_i_vac
 
 
-def loss(coeffs, key, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
-    coeffs = coeffs / np.sqrt(np.sum(np.abs(coeffs)**2))
+def loss(params, vac_, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
+    params = params / np.sqrt(np.sum(np.abs(params) ** 2))
 
-    G2t    = pmap(lambda x: G2t)(np.arange(num_devices))
-    coeffs = pmap(lambda x: coeffs)(np.arange(num_devices))
+    # G2 = forward(pmap(lambda p: params)(np.arange(num_devices)), vac_)
+    # G2 = G2.mean(0)
+    E_s_out, E_i_out, E_i_vac = forward(params[None, :].repeat(num_devices, axis=0), vac_)
+    G1_ss = kron(np.conj(E_s_out.reshape(-1, *(E_s_out.shape[2:]))),
+                 E_s_out.reshape(-1, *(E_s_out.shape[2:]))) / batch_device
+    G1_ii = kron(np.conj(E_i_out.reshape(-1, *(E_s_out.shape[2:]))),
+                 E_i_out.reshape(-1, *(E_s_out.shape[2:]))) / batch_device
+    G1_si = kron(np.conj(E_i_out.reshape(-1, *(E_s_out.shape[2:]))),
+                 E_s_out.reshape(-1, *(E_s_out.shape[2:]))) / batch_device
+    G1_si_dagger = kron(np.conj(E_s_out.reshape(-1, *(E_s_out.shape[2:]))),
+                        E_i_out.reshape(-1, *(E_s_out.shape[2:]))) / batch_device
+    Q_si = kron(E_i_vac.reshape(-1, *(E_s_out.shape[2:])), E_s_out.reshape(-1, *(E_s_out.shape[2:]))) / batch_device
+    Q_si_dagger = kron(np.conj(E_s_out.reshape(-1, *(E_s_out.shape[2:]))),
+                       np.conj(E_i_vac.reshape(-1, *(E_s_out.shape[2:])))) / batch_device
+    G2 = ((
+                  G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si
+          ).real
+          ).reshape(max_mode2 * max_mode2, max_mode1 * max_mode1)
 
-    G2       = forward(coeffs, key)
-    G2       = G2 / np.sum(np.abs(G2))
-
+    G2 = G2 / np.sum(np.abs(G2))
     if loss_type is 'l1':
         return l1_loss(G2, G2t)
     if loss_type is 'l2':
@@ -135,67 +161,67 @@ def loss(coeffs, key, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correl
         raise Exception('Nonstandard loss choice')
 
 
-def update(opt_state, keys, G2t):
-    coeffs              = get_params(opt_state)
-    batch_loss, grads   = value_and_grad(loss)(coeffs, keys, G2t)
-    # grads = np.array([lax.psum(dw, 'device') for dw in grads])
+def update(opt_state, i, x, G2t):
+    params              = get_params(opt_state)
+    batch_loss, grads   = value_and_grad(loss)(params, x, G2t)
+    # grads               = np.array([lax.psum(dw, 'device') for dw in grads])
     # return lax.pmean(batch_loss, 'device'), opt_update(i, grads, opt_state)
     return batch_loss, opt_update(i, grads, opt_state)
 
 if learn_mode:
     print("--- training mode ---")
     # load target P, G2
-    G2t       = np.load(Pt_path + targert_folder + 'G2.npy')
+    # G2t        = pmap(lambda x: np.load(Pt_path + targert_folder + 'G2.npy'))(np.arange(num_devices))
+    G2t = np.load(Pt_path + targert_folder + 'G2.npy')
+
     coeffs_gt = np.load(Pt_path + targert_folder + 'HG_coeffs.npy')
 
     assert len(coeffs) == len(coeffs_gt), "HG parameters and its ground truth must contain same length"
 
+    """Set dataset - Build a dataset of pairs Ai_vac, As_vac"""
+    # seed vacuum samples
+    keys = random.split(random.PRNGKey(1986), num_devices)
+    # generate dataset for each gpu
+    vac_rnd = pmap(lambda key: random.normal(key, (Ndevice, 2, 2, Nx, Ny)))(keys) # N iteration for device, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
+
+    # split to batches
+    def get_train_batches(vac_, key_):
+        vac_shuff = random.permutation(key_, vac_)
+        batch_arr = np.split(vac_shuff, num_batches, axis=0)
+        return batch_arr
+
+    # seed shuffle batches in epochs
+    key_batch_epoch = pmap(lambda i: random.split(random.PRNGKey(1989), num_epochs))(np.arange(num_devices))
+
     # Use optimizers to set optimizer initialization and update functions
     opt_init, opt_update, get_params = optimizers.adam(step_size, b1=0.9, b2=0.999, eps=1e-08)
-    opt_state = opt_init(coeffs)
-    obj_loss, best_obj_loss = [], None
-    epochs_without_improvement = 0
-    l1_pump_coeffs_loss, l2_pump_coeffs_loss = [], []
+    opt_state = opt_init(params)
+    obj_loss = []
+    l1_HG_loss, l2_HG_loss = [], []
     for epoch in range(num_epochs):
         obj_loss_epoch = 0.0
         start_time_epoch = time.time()
-        print("Epoch {}/{} is running".format(epoch, num_epochs))
-        for i in range(num_batches):
-            # seed vacuum samples
-            keys = random.split(random.PRNGKey(i + epoch), num_devices)
-            batch_loss, opt_state = update(opt_state, keys, G2t)
+        batch_set = pmap(get_train_batches)(vac_rnd, key_batch_epoch[:, epoch])
+        print("Epoch {}/{} is running".format(epoch,num_epochs))
+        for i, x in enumerate(batch_set):
+            # idx = pmap(lambda x: np.array(epoch+i))(np.arange(num_devices))
+            idx = np.array(epoch + i)
+            batch_loss, opt_state = update(opt_state, idx, x, G2t)
             obj_loss_epoch += batch_loss.item()
-        curr_coeffs = get_params(opt_state)
-        obj_loss.append(obj_loss_epoch/(i + 1))
+        params = get_params(opt_state)
+        obj_loss.append(obj_loss_epoch/(i+1))
         epoch_time = time.time() - start_time_epoch
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
 
-        # curr_coeffs = curr_coeffs / np.sqrt(np.sum(np.abs(curr_coeffs)**2, 1, keepdims=True))
-        curr_coeffs = curr_coeffs / np.sqrt(np.sum(np.abs(curr_coeffs) ** 2))
+        coeffs = params / np.sqrt(np.sum(np.abs(params)**2))
 
-        l1_pump_coeffs_loss.append(np.sum(np.abs(curr_coeffs - coeffs_gt)))
-        l2_pump_coeffs_loss.append(np.sum((curr_coeffs - coeffs_gt)**2))
-        print("optimized LG coefficients: {}".format(curr_coeffs))
-        print("Norm of LG coefficients: {}".format(np.sum((np.abs(curr_coeffs))**2)))
+        l1_HG_loss.append(np.sum(np.abs(coeffs-coeffs_gt)))
+        l2_HG_loss.append(np.sum((coeffs-coeffs_gt)**2))
+
+        print("optimized LG coefficients: {}".format(coeffs))
+        print("Norm of LG coefficients: {}".format(np.sum((np.abs(coeffs))**2)))
         print("objective loss:{:0.6f}".format(obj_loss[epoch]))
-
-        if best_obj_loss is None or obj_loss[epoch] < best_obj_loss:
-            best_obj_loss = obj_loss[epoch]
-            epochs_without_improvement = 0
-            coeffs = curr_coeffs
-            print(f'\n*** best objective loss updated at epoch {epoch + 1} after ')
-
-        else:
-            epochs_without_improvement += 1
-
-            if early_stopping is not None:
-                if epochs_without_improvement >= early_stopping:
-                    print(f'\n*** Early stopping triggered at epoch '
-                          f'{epoch + 1} after '
-                          f'{epochs_without_improvement} epochs '
-                          f'without improvement')
-                    break
 
     print("--- training time: %s seconds ---" % (time.time() - start_time))
 
@@ -219,12 +245,12 @@ if learn_mode:
     plt.show()
     plt.close()
 
-
-    plt.plot(l1_pump_coeffs_loss, 'r', label='L1')
-    plt.plot(l2_pump_coeffs_loss, 'b', label='L2')
+    plt.plot(l1_HG_loss, 'r', label='L1')
+    plt.plot(l2_HG_loss, 'b', label='L2')
     plt.title('HG coefficients')
     plt.ylabel('measure loss')
     plt.xlabel('#epoch')
+    # plt.ylim(0, 5)
     plt.legend()
     if save_stats:
         plt.savefig(curr_dir + '/HG_coeffs_losses')
@@ -235,19 +261,32 @@ if learn_mode:
 # show last epoch result
 if save_res or save_tgt or show_res:
     print("--- inference mode ---")
-    N_res = batch_size
     ###########################################
     # Set dataset
     ##########################################
     # Build a dataset of pairs Ai_vac, As_vac
 
-    # seed vacuum samples for each gpu
+    # seed vacuum samples
     keys = random.split(random.PRNGKey(1986), num_devices)
+    # generate dataset for each gpu
+    vac_rnd = pmap(lambda key: random.normal(key, (batch_device, 2, 2, Nx, Ny)))(keys)  # number of devices, N iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
 
-    coeffs = pmap(lambda x: coeffs)(np.arange(num_devices))
-    G2       = pmap(forward, axis_name='device')(coeffs, keys)
-    G2       = G2[0]
-    coeffs   = coeffs[0]
+    # G2 = pmap(forward)(params, vac_rnd)
+    # G2       = G2.sum(0)
+
+    E_s_out, E_i_out, E_i_vac = forward(params[None, :].repeat(num_devices, axis=0), vac_rnd)
+    G1_ss = kron(np.conj(E_s_out.reshape(-1, *(E_s_out.shape[2:]))), E_s_out.reshape(-1, *(E_s_out.shape[2:]))) / batch_device
+    G1_ii = kron(np.conj(E_i_out.reshape(-1, *(E_s_out.shape[2:]))), E_i_out.reshape(-1, *(E_s_out.shape[2:]))) / batch_device
+    G1_si = kron(np.conj(E_i_out.reshape(-1, *(E_s_out.shape[2:]))), E_s_out.reshape(-1, *(E_s_out.shape[2:]))) / batch_device
+    G1_si_dagger = kron(np.conj(E_s_out.reshape(-1, *(E_s_out.shape[2:]))), E_i_out.reshape(-1, *(E_s_out.shape[2:]))) / batch_device
+    Q_si = kron(E_i_vac.reshape(-1, *(E_s_out.shape[2:])), E_s_out.reshape(-1, *(E_s_out.shape[2:]))) / batch_device
+    Q_si_dagger = kron(np.conj(E_s_out.reshape(-1, *(E_s_out.shape[2:]))), np.conj(E_i_vac.reshape(-1, *(E_s_out.shape[2:])))) / batch_device
+    G2 = ((
+              G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si
+              ).reshape(max_mode2 * max_mode2,max_mode1 * max_mode1).real
+          ).reshape(max_mode2 * max_mode2, max_mode1 * max_mode1)
+    # G2 = forward(pmap(lambda p: params)(np.arange(num_devices)), vac_rnd)
+    # G2 = G2[0]
 
     if save_tgt:
         print("--- saving targets ---")
@@ -261,16 +300,14 @@ if save_res or save_tgt or show_res:
         G2_t_name = 'G2'
         # save normalized version
         np.save(curr_dir + '/' + G2_t_name, G2 / np.sum(np.abs(G2)))
-        # save pump coeffs version
+
         np.save(curr_dir + '/HG_coeffs', coeffs)
 
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
-            exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str))
         else:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
-            exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str))
         exp_details.close()
 
     if show_res or save_res:
@@ -286,8 +323,11 @@ if save_res or save_tgt or show_res:
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
+            exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str))
+
         else:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+            exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str))
         exp_details.close()
 
 
@@ -322,7 +362,8 @@ if save_res or save_tgt or show_res:
 
 
         # Compute and plot reduced G2
-        G2_reduced = G2[0,:,0,:]
+        #G2_reduced = trace_it(G2, 0, 2)
+        G2_reduced = G2[0, :, 0, :]
         G2_reduced = G2_reduced * tau / (g1_ii_normalization * g1_ss_normalization)
 
         # plot
@@ -337,9 +378,52 @@ if save_res or save_tgt or show_res:
             plt.show()
 
         #Save arrays
+        np.save(curr_dir + '/' + 'PolingCoeffs.npy', poling_parameters)
         np.save(curr_dir + '/' + 'PumpCoeffs.npy', coeffs)
         np.save(curr_dir + '/' + 'G2.npy', G2)
 
-        
+
+        # crystal's pattern
+        #XX, ZZ = np.meshgrid(PP_crystal.x, PP_crystal.z)
+
+        # Save poling
+        magnitude = np.abs(Poling.crystal_profile)
+        print(np.max(magnitude))
+        DutyCycle = np.arcsin(magnitude)/np.pi
+        phase = np.angle(Poling.crystal_profile)
+        #plot and save the first Fourier coefficient of the cyrstal poling
+        CrystalFourier = 0
+        for m in [1]: #in range(100)
+            if m==0:
+                CrystalFourier = CrystalFourier + 2*DutyCycle - 1
+            else:
+                CrystalFourier = CrystalFourier + (2 / (m * np.pi)) * np.sin(m* pi * DutyCycle) * 2 * np.cos(m * phase)
+
+        plt.imshow(CrystalFourier, aspect='auto')
+        plt.xlabel(' x [um]')
+        plt.ylabel(' y [um]')
+        plt.title('Crystal\'s poling pattern: 1st Fourier coefficient')
+        plt.colorbar()
+        if save_res:
+            plt.savefig(curr_dir + '/' + 'poling_1stFourier')
+        if show_res:
+            plt.show()
+        #plot and save also the full cyrstal poling with all Fourier coefficients
+        CrystalFourier = 0
+        for m in range(100):
+            if m==0:
+                CrystalFourier = CrystalFourier + 2*DutyCycle - 1
+            else:
+                CrystalFourier = CrystalFourier + (2 / (m * np.pi)) * np.sin(m* pi * DutyCycle) * 2 * np.cos(m * phase)
+
+        plt.imshow(CrystalFourier, aspect='auto')
+        plt.xlabel(' x [um]')
+        plt.ylabel(' y [um]')
+        plt.title('Crystal\'s poling pattern: All Fourier coefficients')
+        plt.colorbar()
+        if save_res:
+            plt.savefig(curr_dir + '/' + 'poling_AllFourier')
+        if show_res:
+            plt.show()
 print("\n--- Done: %s seconds ---" % (time.time() - start_time))
 exit()

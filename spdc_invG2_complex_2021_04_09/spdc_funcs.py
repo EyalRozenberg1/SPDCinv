@@ -1,6 +1,6 @@
 import jax.numpy as np
 from jax import jit
-from spdc_helper import kron
+from spdc_helper_parallel_complex import kron
 from jax.lib import xla_bridge
 
 
@@ -14,7 +14,7 @@ def calc_and_asserts(N, batch_size):
     assert N % num_devices == 0, "The number of examples should be divisible by the number of devices"
     assert batch_size % num_devices == 0, "The number of examples within a batch should be divisible by the number of devices"
 
-    print("Number of GPU devices: ", num_devices)
+    print(f'Number of GPU devices: {num_devices} \n')
 
     return num_batches, Ndevice, batch_device, num_devices
 
