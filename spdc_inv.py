@@ -1,11 +1,11 @@
 from __future__ import print_function, division, absolute_import
-from loss_funcs import l1_loss, kl_loss, sinkhorn_loss, l2_loss
+from loss_funcs_parallel_complex import l1_loss, kl_loss, sinkhorn_loss, l2_loss
 from spdc_helper import *
-from spdc_funcs import *
+from spdc_funcs_parallel_complex import *
 from physical_params import *
 
 JAX_ENABLE_X64 = False
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 # datetime object containing current date and time
 now       = datetime.now()
@@ -13,66 +13,77 @@ print("date and time =", now.strftime("%d/%m/%Y %H:%M:%S"))
 start_time_initialization = time.time()
 
 learn_mode = True  # learn/infer
-save_stats = False
-show_res   = False   # display results 0/1
-save_res   = False  # save results
+save_stats = True
+show_res   = True   # display results 0/1
+save_res   = True  # save results
 save_tgt   = False  # save targets
 
+learn_crystal_only = False #True = learn only poling. False = learn pump + crystal
 res_path       = 'results/'  # path to results folder
 Pt_path        = 'targets/'  # path to targets folder
 stats_path     = 'stats/'
 
 "Learning Hyperparameters"
-loss_type   = 'l1'  # l1:L1 Norm, kl:Kullback–Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
-step_size   = 0.01
-num_epochs  = 500
-batch_size  = 500   # 10, 20, 50, 100 - number of iterations
-N           = 500  # 100, 500, 1000  - number of total-iterations (dataset size)
-alpha       = 0.5   # in [0,1]; weight for loss: (1-alpha)Pss + alpha G2
+loss_type   = 'kl'  # l1:L1 Norm, kl:Kullback Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
+step_size   = 0.05
+num_epochs  = 200
+batch_size  = 100   # 10, 20, 50, 100 - number of iterations #keep batch_size and N the same size!!!
+N           = 500   # 100, 500, 1000  - number of total-iterations (dataset size)
+alpha       = 1     # in [0,1]; weight for loss: (1-alpha)Pss + alpha G2
 
 
 num_batches, Ndevice, batch_device, num_devices = calc_and_asserts(N, batch_size)
 
 "Interaction Initialization"
 # Structure arrays - initialize crystal and structure arrays
-PP_SLT      = Crystal(dx, dy, dz, MaxX, MaxY, MaxZ, d33)
-M           = len(PP_SLT.x)  # simulation size
+PP_crystal  = Crystal(dx, dy, dz, MaxX, MaxY, MaxZ, d33)
+M           = len(PP_crystal.x)  # simulation size
 
-"""
-* define two pump's function (for now n_coeff must be 2) to define the pump *
-* this should be later changed to the definition given by Sivan *
-"""
-n_coeff  = max_mode**2  # coefficients of beam-basis functions
-Pump     = Beam(lam_pump, PP_SLT, Temperature, waist_pump, power_pump, max_mode)  # wavelength, crystal, tmperature,waist,power, maxmode
-Signal   = Beam(lam_signal, PP_SLT, Temperature, np.sqrt(2)*Pump.waist, power_signal, max_mode)
-Idler    = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_SLT, Temperature, np.sqrt(2)*Pump.waist, power_signal)
+
+n_coeff, max_mode1, max_mode2 , max_mode_crystal= projection_crystal_modes()
+
+Pump     = Beam(lam_pump, PP_crystal, Temperature, waist_pump, power_pump, projection_type, max_mode1, max_mode2)  # wavelength, crystal, tmperature,waist,power, maxmode
+Signal   = Beam(lam_signal, PP_crystal, Temperature, np.sqrt(2)*Pump.waist, power_signal, projection_type, max_mode1, max_mode2, z=MaxZ/2)
+Idler    = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_crystal, Temperature, np.sqrt(2)*Pump.waist, power_signal, projection_type)
 
 # phase mismatch
 delta_k              = Pump.k - Signal.k - Idler.k
-PP_SLT.poling_period = dk_offset * delta_k
-
+PP_crystal.poling_period = dk_offset * delta_k
 "Interaction Parameters"
-Nx = len(PP_SLT.x)
-Ny = len(PP_SLT.y)
+Nx = len(PP_crystal.x)
+Ny = len(PP_crystal.y)
 
 # normalization factor
 g1_ss_normalization = G1_Normalization(Signal.w)
 g1_ii_normalization = G1_Normalization(Idler.w)
 
-coeffs         = HG_coeff_array(coeffs_str, n_coeff)
-phi_parameters = poling_array(poling_str)
+# Initialize pump and crystal coefficients
+coeffs         = HG_coeff_array(coeffs_str, max_mode1*max_mode2)
+poling_parameters = poling_array_init(poling_str, max_mode1*max_mode_crystal)
 
-Poling = Poling_profile(phi_scale, PP_SLT.x,  PP_SLT.MaxX, len(phi_parameters))
+#Settings for Fourier-Bessel or Hermite-Gauss crystal hologram
+if projection_type == 'LG':
+    Poling = Poling_profile(phi_scale, r_scale, PP_crystal.x, PP_crystal.y,  PP_crystal.MaxX, int((max_mode1-1)/2), max_mode_crystal, 'fourier_hankel')
+elif projection_type == 'HG':
+    Poling = Poling_profile(phi_scale, r_scale, PP_crystal.x, PP_crystal.y,  PP_crystal.MaxX, max_mode1, max_mode_crystal, 'hermite')
+
+
+#Only for normalizing poling_parameters
+Poling.create_profile(poling_parameters)
+poling_parameters = Poling.poling_parameters_norm
 
 # replicate parameters for gpus
-params = pmap(lambda x: np.concatenate((coeffs, phi_parameters)))(np.arange(num_devices))
+if learn_crystal_only:
+    params = pmap(lambda x: poling_parameters)(np.arange(num_devices))
+else:
+    params = pmap(lambda x: np.concatenate((coeffs, poling_parameters)))(np.arange(num_devices))
 
-print("--- the HG coefficients initiated are: {} ---\n".format(coeffs))
-print("--- the Taylor coefficients initiated are: {} ---\n".format(phi_parameters))
+print("--- the LG coefficients initiated are: {} ---\n".format(coeffs))
+print("--- the Crystal coefficients initiated are: {} ---\n".format(poling_parameters))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 start_time = time.time()
 
-topic = now.strftime("%_Y-%m-%d") + "_Nb{}_Nx{}Ny{}_z{}_steps{}_devices{}".format(batch_size, Nx, Ny, PP_SLT.MaxZ, len(PP_SLT.z), Ndevice)
+topic = now.strftime("%_Y-%m-%d") + "_Nb{}_Nx{}Ny{}_z{}_steps{}".format(batch_size, Nx, Ny, PP_crystal.MaxZ, len(PP_crystal.z))
 if learn_mode:
     topic += "_loss_{}".format(loss_type) + "_alpha{}".format(alpha) + "_N{}".format(N) + "_epochs{}".format(num_epochs)
 
@@ -80,44 +91,58 @@ if learn_mode:
 @jit
 def forward(params, vac_):  # vac_ = vac_s, vac_i
     N = vac_.shape[0]
-    coeffs, phi_parameters = params[:n_coeff], params[n_coeff:]
+    if learn_crystal_only:
+        #global coeffs
+        #To Eyal: No idea why, but I have to run the above line in order for
+        # the learn_crystal_only TRUE mode to work, and comment it out if learn_crystal_only is FALSE
+        # Can you please check this bug?
+        poling_parameters = params
+    else:
+        #global coeffs
+        coeffs, poling_parameters = params[:n_coeff], params[n_coeff:]
 
     # initialize the vacuum and output fields:
-    Siganl_field    = Field(Signal, PP_SLT, vac_[:, 0], N)
-    Idler_field     = Field(Idler, PP_SLT, vac_[:, 1], N)
+    Siganl_field    = Field(Signal, PP_crystal, vac_[:, 0], N)
+    Idler_field     = Field(Idler, PP_crystal, vac_[:, 1], N)
 
     # current pump structure
     Pump.create_profile(coeffs)
 
     # current poling profile
-    Poling.create_profile(phi_parameters)
+    Poling.create_profile(poling_parameters)
+    phi_normalization = Poling.normalization
+    poling_parameters = Poling.poling_parameters_norm
 
     # Propagate through the crystal:
-    crystal_prop(Pump, Siganl_field, Idler_field, PP_SLT, Poling)
-
-    E_s_out = decompose(Siganl_field.E_out, Signal.hermite_arr).reshape(N, max_mode, max_mode)
-    E_i_out = decompose(Idler_field.E_out, Signal.hermite_arr).reshape(N, max_mode, max_mode)
-    E_i_vac = decompose(Idler_field.E_vac, Signal.hermite_arr).reshape(N, max_mode, max_mode)
+    crystal_prop(Pump, Siganl_field, Idler_field, PP_crystal, Poling)
+    #WAS: reshape(N, max_mode1, max_mode2)
+    E_s_out = decompose(Siganl_field.E_out, Signal.hermite_arr).reshape(N, max_mode2, max_mode1)
+    E_i_out = decompose(Idler_field.E_out, Signal.hermite_arr).reshape(N, max_mode2, max_mode1)
+    E_i_vac = decompose(Idler_field.E_vac, Signal.hermite_arr).reshape(N, max_mode2, max_mode1)
     # say there are no higher modes by normalizing the power
-    E_s_out = fix_power1(E_s_out, Siganl_field.E_out, Signal, PP_SLT)
-    E_i_out = fix_power1(E_i_out, Idler_field.E_out, Signal, PP_SLT)
-    E_i_vac = fix_power1(E_i_vac, Idler_field.E_vac, Signal, PP_SLT)
+    E_s_out = fix_power1(E_s_out, Siganl_field.E_out, Signal, PP_crystal)
+    E_i_out = fix_power1(E_i_out, Idler_field.E_out, Signal, PP_crystal)
+    E_i_vac = fix_power1(E_i_vac, Idler_field.E_vac, Signal, PP_crystal)
 
     "Coumpute k-space far field using FFT:"
     # normalization factors
-    FarFieldNorm_signal = (2 * PP_SLT.MaxX) ** 2 / (np.size(Siganl_field.E_out) * Signal.lam * R)
+    FarFieldNorm_signal = (2 * PP_crystal.MaxX) ** 2 / (np.size(Siganl_field.E_out) * Signal.lam * R)
     # FFT:
     E_s_out_k = FarFieldNorm_signal * Fourier(Siganl_field.E_out)
 
     P_ss = Pss_calc(E_s_out_k, Nx, Ny, M, batch_size)
-    G2   = G2_calc(E_s_out, E_i_out, E_i_vac, batch_size).reshape(max_mode**2, max_mode**2)
+    #WAS: .reshape(max_mode1*max_mode1, max_mode2*max_mode2)
+    G2   = G2_calc(E_s_out, E_i_out, E_i_vac, batch_size).reshape(max_mode2*max_mode2, max_mode1*max_mode1)
     return P_ss, G2
 
 
 def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
-    coeffs, phi_parameters = params[:n_coeff], params[n_coeff:]
-    coeffs = coeffs / np.sqrt(np.sum(np.abs(coeffs)**2))
-    params = np.concatenate((coeffs, phi_parameters))
+    if learn_crystal_only:
+        poling_parameters = params
+    else:
+        coeffs, poling_parameters = params[:n_coeff], params[n_coeff:]
+        coeffs = coeffs / np.sqrt(np.sum(np.abs(coeffs)**2))
+        params = np.concatenate((coeffs, poling_parameters))
 
     P_ss, G2 = forward(params, vac_)
     P_ss     = P_ss / np.sum(np.abs(P_ss))
@@ -128,7 +153,7 @@ def loss(params, vac_, P_ss_t, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 targ
     if loss_type is 'l2':
         return (1-alpha)*l2_loss(P_ss, P_ss_t) + alpha*l2_loss(G2, G2t)
     if loss_type is 'kl':
-        return (1-alpha)*kl_loss(P_ss, P_ss_t, eps=0)+alpha*kl_loss(G2, G2t, eps=1e-2)
+        return (1-alpha)*kl_loss(P_ss, P_ss_t, eps=1e-2)+alpha*kl_loss(G2, G2t, eps=1e-2)
     if loss_type is 'wass':
         return (1-alpha)*sinkhorn_loss(P_ss, P_ss_t, M, eps=1e-3, max_iters=100, stop_thresh=None) + \
                alpha*sinkhorn_loss(G2, G2t, n_coeff, eps=1e-3, max_iters=100, stop_thresh=None)
@@ -150,10 +175,10 @@ if learn_mode:
     G2t        = pmap(lambda x: np.load(Pt_path + targert_folder + 'G2.npy'))(np.arange(num_devices))
 
     coeffs_gt = np.load(Pt_path + targert_folder + 'HG_coeffs.npy')
-    phi_parameters_gt = np.load(Pt_path + targert_folder + 'Taylor_coeffs.npy')
+    poling_parameters_gt = np.load(Pt_path + targert_folder + 'Taylor_coeffs.npy')
 
     assert len(coeffs) == len(coeffs_gt), "HG parameters and its ground truth must contain same length"
-    assert len(phi_parameters) == len(phi_parameters_gt), "Taylor series phi parameters and its ground truth must contain same length"
+    assert len(poling_parameters) == len(poling_parameters_gt), "Taylor series phi parameters and its ground truth must contain same length"
 
     """Set dataset - Build a dataset of pairs Ai_vac, As_vac"""
     # seed vacuum samples
@@ -180,7 +205,7 @@ if learn_mode:
         obj_loss_epoch = 0.0
         start_time_epoch = time.time()
         batch_set = pmap(get_train_batches)(vac_rnd, key_batch_epoch[:, epoch])
-        print("Epoch {} is running".format(epoch))
+        print("Epoch {}/{} is running".format(epoch,num_epochs))
         for i, x in enumerate(batch_set):
             idx = pmap(lambda x: np.array(epoch+i))(np.arange(num_devices))
             batch_loss, opt_state = update(opt_state, idx, x, P_ss_t, G2t)
@@ -190,19 +215,27 @@ if learn_mode:
         epoch_time = time.time() - start_time_epoch
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
-        coeffs, phi_parameters = params[0][:n_coeff], params[0][n_coeff:]
-        coeffs = coeffs / np.sqrt(np.sum(np.abs(coeffs)**2))
+        if learn_crystal_only:
+            poling_parameters = params[0]
+        else:
+            coeffs, poling_parameters = params[0][:n_coeff], params[0][n_coeff:]
+            coeffs = coeffs / np.sqrt(np.sum(np.abs(coeffs)**2))
+
         l1_HG_loss.append(np.sum(np.abs(coeffs-coeffs_gt)))
         l2_HG_loss.append(np.sum((coeffs-coeffs_gt)**2))
-        l1_tylor_loss.append(np.sum(np.abs(phi_parameters - phi_parameters_gt)))
-        l2_tylor_loss.append(np.sum((phi_parameters - phi_parameters_gt) ** 2))
-        print("optimized HG coefficients: {}".format(coeffs))
-        print("optimized Taylor coefficients: {}".format(phi_parameters))
+        l1_tylor_loss.append(np.sum(np.abs(poling_parameters - poling_parameters_gt)))
+        l2_tylor_loss.append(np.sum((poling_parameters - poling_parameters_gt) ** 2))
+        print("optimized LG coefficients: {}".format(coeffs))
+        print("Norm of LG coefficients: {}".format(np.sum((np.abs(coeffs))**2)))
+
+        print("optimized crystal coefficients: {}".format(poling_parameters))
+        #print("Crystal poling maximal value: {}".format(phi_normalization))
+
         print("objective loss:{:0.6f}".format(obj_loss[epoch]))
-        print("l1 HG coeffs loss:{:0.6f}".format(l1_HG_loss[epoch]))
-        print("l2 HG coeffs loss:{:0.6f}".format(l2_HG_loss[epoch]))
-        print("l1 Taylor coeffs loss:{:0.6f}".format(l1_tylor_loss[epoch]))
-        print("l2 Taylor coeffs loss:{:0.6f}".format(l2_tylor_loss[epoch]))
+#        print("l1 HG coeffs loss:{:0.6f}".format(l1_HG_loss[epoch]))
+#        print("l2 HG coeffs loss:{:0.6f}".format(l2_HG_loss[epoch]))
+#        print("l1 Taylor coeffs loss:{:0.6f}".format(l1_tylor_loss[epoch]))
+#        print("l2 Taylor coeffs loss:{:0.6f}".format(l2_tylor_loss[epoch]))
 
 
     print("--- training time: %s seconds ---" % (time.time() - start_time))
@@ -215,7 +248,7 @@ if learn_mode:
         os.makedirs(curr_dir)
     exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
     exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
-    exp_details.write(make_taylor_from_phi_str(phi_parameters, poling_str, phi_parameters_gt))
+    exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str, poling_parameters_gt))
     exp_details.close()
 
     plt.plot(obj_loss, 'r')
@@ -285,15 +318,15 @@ if save_res or save_tgt or show_res:
         np.save(curr_dir + '/' + G2_t_name, G2 / np.sum(np.abs(G2)))
 
         np.save(curr_dir + '/HG_coeffs', coeffs)
-        np.save(curr_dir + '/Taylor_coeffs', phi_parameters)
+        np.save(curr_dir + '/Taylor_coeffs', poling_parameters)
 
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
-            exp_details.write(make_taylor_from_phi_str(phi_parameters, poling_str, phi_parameters_gt))
+            exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str, poling_parameters_gt))
         else:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
-            exp_details.write(make_taylor_from_phi_str(phi_parameters, poling_str))
+            exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str))
         exp_details.close()
 
     if show_res or save_res:
@@ -309,19 +342,19 @@ if save_res or save_tgt or show_res:
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
-            exp_details.write(make_taylor_from_phi_str(phi_parameters, poling_str, phi_parameters_gt))
+            exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str, poling_parameters_gt))
 
         else:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
-            exp_details.write(make_taylor_from_phi_str(phi_parameters, poling_str))
+            exp_details.write(make_taylor_from_phi_str(poling_parameters, poling_str))
         exp_details.close()
 
         ################
         # Plot G1 #
         ################
         FF_position_axis = lambda dx, MaxX, k, R: np.arange(-1 / dx, 1 / dx, 1 / MaxX) * (np.pi * R / k)
-        FFcoordinate_axis_Idler = 1e3 * FF_position_axis(PP_SLT.dx, PP_SLT.MaxX, Idler.k / Idler.n, R)
-        FFcoordinate_axis_Signal = 1e3 * FF_position_axis(PP_SLT.dx, PP_SLT.MaxX, Signal.k / Signal.n, R)
+        FFcoordinate_axis_Idler = 1e3 * FF_position_axis(PP_crystal.dx, PP_crystal.MaxX, Idler.k / Idler.n, R)
+        FFcoordinate_axis_Signal = 1e3 * FF_position_axis(PP_crystal.dx, PP_crystal.MaxX, Signal.k / Signal.n, R)
 
         # AK, NOV24: I added a far-field position axis extents, in mm.
         extents_FFcoordinates_signal = [min(FFcoordinate_axis_Signal), max(FFcoordinate_axis_Signal),
@@ -330,7 +363,7 @@ if save_res or save_tgt or show_res:
                                        max(FFcoordinate_axis_Idler)]
 
         # calculate theoretical angle for signal
-        theoretical_angle = np.arccos((Pump.k - PP_SLT.poling_period) / 2 / Signal.k)
+        theoretical_angle = np.arccos((Pump.k - PP_crystal.poling_period) / 2 / Signal.k)
         theoretical_angle = np.arcsin(Signal.n * np.sin(theoretical_angle) / 1)  # Snell's law
 
         P_ss /= g1_ss_normalization
@@ -350,25 +383,35 @@ if save_res or save_tgt or show_res:
         # Plot G2 #
         ################
         # Unwrap G2 indices
-        G2_unwrap_idx_str = 'G2_unwarp_idx/G2_unwrap_max_mode{}.npy'.format(max_mode)
-        if not os.path.exists(G2_unwrap_idx_str):
-            G2_unwrapped_idx_np = onp.zeros((max_mode, max_mode, max_mode, max_mode), dtype='int32')
-            G2_unwrapped_idx_np = \
-                unwrap_kron(G2_unwrapped_idx_np,
-                            onp.arange(0, max_mode * max_mode * max_mode * max_mode, dtype='int32').reshape(max_mode * max_mode, max_mode * max_mode),
-                            max_mode).reshape(max_mode * max_mode * max_mode * max_mode).astype(int)
+        G2_unwrap_idx_str = 'G2_unwarp_idx/G2_unwrap_max_mode{}.npy'.format(max_mode1*max_mode2)
+        savetime_flag = 0
+        if savetime_flag:
+            if not os.path.exists(G2_unwrap_idx_str):
+                G2_unwrapped_idx_np = onp.zeros((max_mode1, max_mode2, max_mode1, max_mode2), dtype='int32')
+                print(np.shape(onp.arange(0, max_mode1 * max_mode2 * max_mode1 * max_mode2, dtype='int32').reshape(
+                    max_mode1 * max_mode2, max_mode1 * max_mode2)))
+                print(np.shape(G2_unwrapped_idx_np))
+                G2_unwrapped_idx_np = \
+                    unwrap_kron(G2_unwrapped_idx_np,
+                                onp.arange(0, max_mode1 * max_mode2 * max_mode1 * max_mode2, dtype='int32').reshape(max_mode1 * max_mode1, max_mode2 * max_mode2),
+                                max_mode1, max_mode2).reshape(max_mode1 * max_mode2 * max_mode1 * max_mode2).astype(int)
 
-            np.save(G2_unwrap_idx_str, G2_unwrapped_idx_np)
+                np.save(G2_unwrap_idx_str, G2_unwrapped_idx_np)
 
+            else:
+                G2_unwrapped_idx_np = np.load(G2_unwrap_idx_str)
+            G2_unwrapped_idx = onp.ndarray.tolist(G2_unwrapped_idx_np)
+            del G2_unwrapped_idx_np
+
+            G2 = G2.reshape(max_mode1 * max_mode2 * max_mode1 * max_mode2)[G2_unwrapped_idx].reshape(max_mode1, max_mode2, max_mode1, max_mode2)
         else:
-            G2_unwrapped_idx_np = np.load(G2_unwrap_idx_str)
-        G2_unwrapped_idx = onp.ndarray.tolist(G2_unwrapped_idx_np)
-        del G2_unwrapped_idx_np
+            G2_tensor = onp.zeros((max_mode2, max_mode1, max_mode2, max_mode1), dtype='int32')
+            G2 = unwrap_kron(G2_tensor, G2, max_mode2, max_mode1)
 
-        G2 = G2.reshape(max_mode * max_mode * max_mode * max_mode)[G2_unwrapped_idx].reshape(max_mode, max_mode, max_mode, max_mode)
 
         # Compute and plot reduced G2
-        G2_reduced = trace_it(G2, 0, 2)
+        #G2_reduced = trace_it(G2, 0, 2)
+        G2_reduced = G2[0,:,0,:]
         G2_reduced = G2_reduced * tau / (g1_ii_normalization * g1_ss_normalization)
 
         # plot
@@ -382,18 +425,60 @@ if save_res or save_tgt or show_res:
         if show_res:
             plt.show()
 
+        #Save arrays
+        np.save(curr_dir + '/' + 'PolingCoeffs.npy', poling_parameters)
+        np.save(curr_dir + '/' + 'PumpCoeffs.npy', coeffs)
+        np.save(curr_dir + '/' + 'G2.npy', G2)
+
+
         # crystal's pattern
-        XX, ZZ = np.meshgrid(PP_SLT.x, PP_SLT.z)
-        Poling.create_profile(phi_parameters)
-        plt.imshow(np.sign(np.cos(PP_SLT.poling_period * ZZ + Poling.phi)), aspect='auto')
-        plt.xlabel(' x [mm]')
-        plt.ylabel(' z [mm]')
-        plt.title('Crystal\'s poling pattern')
+        #XX, ZZ = np.meshgrid(PP_crystal.x, PP_crystal.z)
+
+        #Save poling
+        if projection_type == 'LG':
+            PolingToSave = Poling_profile(phi_scale, r_scale, PP_crystal.x, PP_crystal.y, PP_crystal.MaxX, max_mode_l, max_mode_crystal,
+                                'fourier_hankel')
+        elif projection_type == 'HG':
+            PolingToSave = Poling_profile(phi_scale, r_scale, PP_crystal.x, PP_crystal.y, PP_crystal.MaxX, max_mode1, max_mode_crystal,
+                                'hermite')
+        PolingToSave.create_profile(poling_parameters)
+        magnitude = np.abs(PolingToSave.crystal_profile)
+        print(np.max(magnitude))
+        DutyCycle = np.arcsin(magnitude)/np.pi
+        phase = np.angle(PolingToSave.crystal_profile)
+        #plot and save the first Fourier coefficient of the cyrstal poling
+        CrystalFourier = 0
+        for m in [1]: #in range(100)
+            if m==0:
+                CrystalFourier = CrystalFourier + 2*DutyCycle - 1
+            else:
+                CrystalFourier = CrystalFourier + (2 / (m * np.pi)) * np.sin(m* pi * DutyCycle) * 2 * np.cos(m * phase)
+
+        plt.imshow(CrystalFourier, aspect='auto')
+        plt.xlabel(' x [um]')
+        plt.ylabel(' y [um]')
+        plt.title('Crystal\'s poling pattern: 1st Fourier coefficient')
         plt.colorbar()
         if save_res:
-            plt.savefig(curr_dir + '/' + 'poling')
+            plt.savefig(curr_dir + '/' + 'poling_1stFourier')
         if show_res:
             plt.show()
+        #plot and save also the full cyrstal poling with all Fourier coefficients
+        CrystalFourier = 0
+        for m in range(100):
+            if m==0:
+                CrystalFourier = CrystalFourier + 2*DutyCycle - 1
+            else:
+                CrystalFourier = CrystalFourier + (2 / (m * np.pi)) * np.sin(m* pi * DutyCycle) * 2 * np.cos(m * phase)
 
+        plt.imshow(CrystalFourier, aspect='auto')
+        plt.xlabel(' x [um]')
+        plt.ylabel(' y [um]')
+        plt.title('Crystal\'s poling pattern: All Fourier coefficients')
+        plt.colorbar()
+        if save_res:
+            plt.savefig(curr_dir + '/' + 'poling_AllFourier')
+        if show_res:
+            plt.show()
 print("\n--- Done: %s seconds ---" % (time.time() - start_time))
 exit()
