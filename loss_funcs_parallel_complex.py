@@ -6,7 +6,7 @@ from jax import jit
 # L1 Loss #
 ###########
 @jit
-def l1_loss(a, b):
+def l1_loss(a, b: np.array = 0):
     return np.sum(np.abs(a - b))
 
 
@@ -14,7 +14,7 @@ def l1_loss(a, b):
 # L2 Loss #
 ###########
 @jit
-def l2_loss(a, b):
+def l2_loss(a, b: np.array = 0):
     return np.sum((a - b)**2)
 
 
