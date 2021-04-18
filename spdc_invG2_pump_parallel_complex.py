@@ -5,7 +5,7 @@ os.environ["JAX_ENABLE_X64"] = 'True'
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = 'platform'
 os.environ["CUDA_VISIBLE_DEVICES"] = '4,5,6,7'
 
-from loss_funcs_parallel_complex import l1_loss, kl_loss, sinkhorn_loss, l2_loss, bhattacharyya_loss, loss_func
+from loss_funcs_parallel_complex import l1_loss, kl_loss, sinkhorn_loss, l2_loss, bhattacharyya_loss
 from spdc_helper_parallel_complex import *
 from spdc_funcs_parallel_complex import *
 from physical_params_parallel_complex import *
@@ -16,9 +16,9 @@ print("\n date and time =", now.strftime("%d/%m/%Y %H:%M:%S"))
 start_time_initialization = time.time()
 
 learn_mode = True  # learn/infer
-save_stats = True
+save_stats = False
 show_res = True  # display results 0/1
-save_res = True  # save results
+save_res = False  # save results
 save_tgt = False  # save targets
 
 res_path = 'results/'  # path to results folder
@@ -240,17 +240,19 @@ if learn_mode:
 
     print("--- training time: %s seconds ---" % (time.time() - start_time))
 
+
     curr_dir = stats_path + topic
-    if os.path.isdir(curr_dir):
-        for filename in os.listdir(curr_dir):
-            os.remove(curr_dir + '/' + filename)
-    else:
-        os.makedirs(curr_dir)
-    exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
-    exp_details.write(
-        make_beam_from_HG_str(Pump.hermite_str,
-                              coeffs[0, :n_coeff_pump] + 1j * coeffs[0, n_coeff_pump:2 * n_coeff_pump], coeffs_str))
-    exp_details.close()
+    if save_stats:
+        if os.path.isdir(curr_dir):
+            for filename in os.listdir(curr_dir):
+                os.remove(curr_dir + '/' + filename)
+        else:
+            os.makedirs(curr_dir)
+        exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
+        exp_details.write(
+            make_beam_from_HG_str(Pump.hermite_str,
+                                  coeffs[0, :n_coeff_pump] + 1j * coeffs[0, n_coeff_pump:2 * n_coeff_pump], coeffs_str))
+        exp_details.close()
 
     plt.plot(obj_loss_trn, 'r', label='training')
     plt.plot(obj_loss_vld, 'b', label='validation')
@@ -308,18 +310,19 @@ if save_res or save_tgt or show_res:
         print("--- saving/plotting results ---")
 
         curr_dir = res_path + topic
-        if os.path.isdir(curr_dir):
-            for filename in os.listdir(curr_dir):
-                os.remove(curr_dir + '/' + filename)
-        else:
-            os.makedirs(curr_dir)
+        if save_res:
+            if os.path.isdir(curr_dir):
+                for filename in os.listdir(curr_dir):
+                    os.remove(curr_dir + '/' + filename)
+            else:
+                os.makedirs(curr_dir)
 
-        exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
-        if learn_mode:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
-        else:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
-        exp_details.close()
+            exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
+            if learn_mode:
+                exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+            else:
+                exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+            exp_details.close()
 
         ################
         # Plot G2 #
@@ -395,9 +398,10 @@ if save_res or save_tgt or show_res:
             plt.show()
 
         # Save arrays
-        np.save(curr_dir + '/' + 'PumpCoeffs_real.npy', coeffs.real)
-        np.save(curr_dir + '/' + 'PumpCoeffs_imag.npy', coeffs.imag)
-        np.save(curr_dir + '/' + 'G2.npy', G2)
+        if save_res:
+            np.save(curr_dir + '/' + 'PumpCoeffs_real.npy', coeffs.real)
+            np.save(curr_dir + '/' + 'PumpCoeffs_imag.npy', coeffs.imag)
+            np.save(curr_dir + '/' + 'G2.npy', G2)
 
 print("\n--- Done: %s seconds ---" % (time.time() - start_time))
 exit()
