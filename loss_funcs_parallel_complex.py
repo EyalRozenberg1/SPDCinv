@@ -32,6 +32,15 @@ def kl_loss(a, b, eps=1e-7):
 
 
 #################
+# Bhattacharyya #
+#################
+@jit
+def bhattacharyya_loss(a, b):
+    # Bhattacharyya distance #
+    return 1. - np.sum(np.sqrt(np.abs(a * b)))
+
+
+#################
 # Sinkhorn Loss #
 #################
 def pairwise_distances(a, b, p=2):

@@ -3,9 +3,9 @@ from __future__ import print_function, division, absolute_import
 import os
 os.environ["JAX_ENABLE_X64"] = 'True'
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = 'platform'
-os.environ["CUDA_VISIBLE_DEVICES"] = '4,5'
+os.environ["CUDA_VISIBLE_DEVICES"] = '4,5,6,7'
 
-from loss_funcs_parallel_complex import l1_loss, kl_loss, sinkhorn_loss, l2_loss
+from loss_funcs_parallel_complex import l1_loss, kl_loss, sinkhorn_loss, l2_loss, bhattacharyya_loss, loss_func
 from spdc_helper_parallel_complex import *
 from spdc_funcs_parallel_complex import *
 from physical_params_parallel_complex import *
@@ -30,8 +30,8 @@ seed = 1989
 "Learning Hyperparameters"
 loss_type = 'kl_sparse_balanced'  # l1:L1 Norm, kl:Kullback Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
 step_size = 0.05
-num_epochs = 200
-N           = 1000  # 100, 500, 1000  - number of total-iterations for learning (dataset size)
+num_epochs = 75
+N           = 1200  # 100, 500, 1000  - number of total-iterations for learning (dataset size)
 N_inference = 4000  # 100, 500, 1000  - number of total-iterations for inference (dataset size)
 
 batch_device, num_devices = calc_and_asserts(N)
@@ -173,29 +173,36 @@ def update(opt_state, i, key, G2t):
     return lax.pmean(batch_loss, 'device'), opt_update(i, grads, opt_state)
 
 
+@partial(pmap, axis_name='device')
+def validate(opt_state, key, G2t):
+    coeffs = get_params(opt_state)
+    batch_loss, grads = value_and_grad(loss)(coeffs, key, G2t)
+    return lax.pmean(batch_loss, 'device')
+
+
 if learn_mode:
     print("--- training mode ---")
     # load target P, G2
     G2t = pmap(lambda x: np.load(Pt_path + targert_folder + 'G2.npy'))(np.arange(num_devices))
 
-    assert len(coeffs_real + 1j * coeffs_imag) == len(
-        coeffs_gt), "HG parameters and its ground truth must contain same length"
+    # loss_func(G2t=G2t[0, 0],
+    #           n_coeff_projections=n_coeff_projections,
+    #           loss_type=loss_type)
+              # abuse_pump_coeffs_idx=[1, 3, 6, 8, 11, 13])
 
     # Use optimizers to set optimizer initialization and update functions
     opt_init, opt_update, get_params = optimizers.adam(step_size, b1=0.9, b2=0.999, eps=1e-08)
     opt_state = opt_init(coeffs)
-    obj_loss, best_obj_loss = [], None
+    obj_loss_trn, obj_loss_vld, best_obj_loss = [], [], None
     epochs_without_improvement = 0
-    l1_HG_loss, l2_HG_loss = [], []
+    validation_flag = np.array([1]).repeat(num_devices)
     for epoch in range(num_epochs):
-        obj_loss_epoch = 0.0
         start_time_epoch = time.time()
         print("Epoch {}/{} is running".format(epoch, num_epochs))
         # seed vacuum samples
         keys = random.split(random.PRNGKey(seed + epoch), num_devices)
         idx = np.array([epoch]).repeat(num_devices)
         batch_loss, opt_state = update(opt_state, idx, keys, G2t)
-        obj_loss_epoch += batch_loss[0].item()
         curr_coeffs = get_params(opt_state)
         obj_loss_trn.append(batch_loss[0].item())
 
@@ -216,15 +223,14 @@ if learn_mode:
 
         coeffs_ = coeffs_real[0] + 1j * coeffs_imag[0]
 
-        l1_HG_loss.append(np.sum(np.abs(coeffs_ - coeffs_gt)))
-        l2_HG_loss.append(np.sum(np.abs(coeffs_ - coeffs_gt) ** 2))
         print("optimized LG coefficients: {}".format(coeffs_))
         print("Norm of LG coefficients: {}".format(np.sum((np.abs(coeffs_)) ** 2)))
 
-        print("objective loss:{:0.6f}".format(obj_loss[epoch]))
+        print("training   objective loss:{:0.6f}".format(obj_loss_trn[epoch]))
+        print("validation objective loss:{:0.6f}".format(obj_loss_vld[epoch]))
 
-        if best_obj_loss is None or obj_loss[epoch] < best_obj_loss:
-            best_obj_loss = obj_loss[epoch]
+        if best_obj_loss is None or obj_loss_vld[epoch] < best_obj_loss:
+            best_obj_loss = obj_loss_vld[epoch]
             epochs_without_improvement = 0
             coeffs = curr_coeffs
             print(f'\n*** best objective loss updated at epoch {epoch}')
@@ -246,26 +252,17 @@ if learn_mode:
                               coeffs[0, :n_coeff_pump] + 1j * coeffs[0, n_coeff_pump:2 * n_coeff_pump], coeffs_str))
     exp_details.close()
 
-    plt.plot(obj_loss, 'r')
+    plt.plot(obj_loss_trn, 'r', label='training')
+    plt.plot(obj_loss_vld, 'b', label='validation')
     plt.title('loss(G2), loss type:{}'.format(loss_type))
     plt.ylabel('objective loss')
     plt.xlabel('#epoch')
-    # plt.ylim(0, 1)
+    plt.legend()
     if save_stats:
         plt.savefig(curr_dir + '/objective_loss')
     plt.show()
     plt.close()
 
-    plt.plot(l1_HG_loss, 'r', label='L1')
-    plt.plot(l2_HG_loss, 'b', label='L2')
-    plt.title('HG coefficients')
-    plt.ylabel('measure loss')
-    plt.xlabel('#epoch')
-    plt.legend()
-    if save_stats:
-        plt.savefig(curr_dir + '/HG_coeffs_losses')
-    plt.show()
-    plt.close()
 
 # show last epoch result
 if save_res or save_tgt or show_res:
@@ -302,7 +299,7 @@ if save_res or save_tgt or show_res:
 
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
         else:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
         exp_details.close()
@@ -319,7 +316,7 @@ if save_res or save_tgt or show_res:
 
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
         else:
             exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
         exp_details.close()
@@ -361,14 +358,39 @@ if save_res or save_tgt or show_res:
         G2_reduced = G2[0, :, 0, :]
         G2_reduced = G2_reduced * tau / (g1_ii_normalization * g1_ss_normalization)
 
-        # plot
+        # plot G2 2d
         plt.imshow(G2_reduced)
         plt.title(r'$G^{(2)}$ (coincidences)')
         plt.xlabel(r'signal mode i')
         plt.ylabel(r'idle mode j')
         plt.colorbar()
+        plt.xticks(np.arange(n_coeff_projections), np.arange(n_coeff_projections) - int(n_coeff_projections/2))
+        plt.yticks(np.arange(n_coeff_projections), np.arange(n_coeff_projections) - int(n_coeff_projections/2))
         if save_res:
             plt.savefig(curr_dir + '/' + 'G2')
+        if show_res:
+            plt.show()
+
+
+        from mpl_toolkits.mplot3d import Axes3D
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        xpos, ypos = np.meshgrid(np.arange(n_coeff_projections) - int(n_coeff_projections / 2),
+                                 np.arange(n_coeff_projections) - int(n_coeff_projections / 2))
+        xpos = xpos.flatten('F')
+        ypos = ypos.flatten('F')
+        zpos = np.zeros_like(xpos)
+        dx = 0.8 * np.ones_like(zpos)
+        dy = dx.copy()
+        dz = G2_reduced.flatten()
+        ax.bar3d(xpos, ypos, zpos, dx, dy, dz, shade=True)
+        ax.set_title(r'$G^{(2)}$ (coincidences)')
+        ax.set_xlabel(r'signal mode i')
+        ax.set_ylabel(r'signal mode i')
+        # ax.set_xticks(np.arange(n_coeff_projections), np.arange(n_coeff_projections) - int(n_coeff_projections / 2))
+        # ax.set_yticks(np.arange(n_coeff_projections), np.arange(n_coeff_projections) - int(n_coeff_projections / 2))
+        if save_res:
+            plt.savefig(curr_dir + '/' + 'G2_3d')
         if show_res:
             plt.show()
 
