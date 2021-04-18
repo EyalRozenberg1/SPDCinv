@@ -76,7 +76,7 @@ compute everything to do with a beam.
     -power - peak power of the beam, in W. optional
 '''
 class Beam:
-    def __init__(self, lam, crystal, T, waist=0, power=0,  type = 'LG', max_mode1=0, max_mode2=0, z=0):
+    def __init__(self, lam, crystal, T, waist=0, power=0,  type='LG', max_mode1=0, max_mode2=0, z=0):
         self.lam = lam  # wavelength
         self.waist = waist  # waist
         self.n = crystal.ctype(lam * 1e6, T)  # refractive index
@@ -438,7 +438,7 @@ def LaguerreBank(lam, ind_ref, W0, max_mode1, max_mode2, x, y, z=0):
     max_mode_l = int((max_mode1 - 1)/2)
     max_mode_p = max_mode2
     for p in range(max_mode_p):
-        for l in range(-max_mode_l,max_mode_l+1):
+        for l in range(-max_mode_l, max_mode_l+1):
             Laguerre_dict[str(p) + str(l)] = Laguerre_gauss(lam, ind_ref, W0, l, p, z, x, y)
 
     return np.array(list(Laguerre_dict.values())), [*Laguerre_dict]

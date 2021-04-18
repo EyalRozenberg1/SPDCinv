@@ -41,10 +41,11 @@ batch_device, num_devices = calc_and_asserts(N)
 PP_crystal = Crystal(dx, dy, dz, MaxX, MaxY, MaxZ, d33)
 M = len(PP_crystal.x)  # simulation size
 
-n_coeff, max_mode1, max_mode2, max_mode_crystal = projection_crystal_modes()
+n_coeff_projections, n_coeff_pump, max_mode1, max_mode2, \
+max_radial_mode_crystal, max_radial_mode_pump, max_angular_mode_pump = projection_crystal_modes()
 
-Pump = Beam(lam_pump, PP_crystal, Temperature, waist_pump, power_pump, projection_type, max_mode1,
-            max_mode2)  # wavelength, crystal, tmperature,waist,power, maxmode
+Pump = Beam(lam_pump, PP_crystal, Temperature, waist_pump, power_pump, projection_type, 2*max_angular_mode_pump + 1,
+            max_radial_mode_pump)  # wavelength, crystal, tmperature,waist,power, maxmode
 Signal = Beam(lam_signal, PP_crystal, Temperature, np.sqrt(2) * Pump.waist, power_signal, projection_type, max_mode1,
               max_mode2, z=0)
 Idler = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_crystal, Temperature, np.sqrt(2) * Pump.waist, power_signal,
@@ -62,7 +63,7 @@ g1_ss_normalization = G1_Normalization(Signal.w)
 g1_ii_normalization = G1_Normalization(Idler.w)
 
 # Initialize pump and crystal coefficients
-coeffs_real, coeffs_imag = HG_coeff_array(coeffs_str, max_mode1 * max_mode2)
+coeffs_real, coeffs_imag = HG_coeff_array(coeffs_str, n_coeff_pump)
 
 # replicate parameters for gpus
 coeffs = pmap(lambda x: np.concatenate((coeffs_real, coeffs_imag)))(np.arange(num_devices))
@@ -80,7 +81,7 @@ if learn_mode:
 
 
 def forward(coeffs, key):
-    coeffs_real, coeffs_imag = coeffs[:n_coeff], coeffs[n_coeff:2 * n_coeff]
+    coeffs_real, coeffs_imag = coeffs[:n_coeff_pump], coeffs[n_coeff_pump:2 * n_coeff_pump]
     # batch_device iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
     vac_ = random.normal(key, (batch_device, 2, 2, Nx, Ny))
 
@@ -118,7 +119,7 @@ def forward(coeffs, key):
 
 
 def loss(coeffs, key, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
-    coeffs_real, coeffs_imag = coeffs[:n_coeff], coeffs[n_coeff:2 * n_coeff]
+    coeffs_real, coeffs_imag = coeffs[:n_coeff_pump], coeffs[n_coeff_pump:2 * n_coeff_pump]
     normalization = np.sqrt(np.sum(np.abs(coeffs_real) ** 2 + np.abs(coeffs_imag) ** 2))
     coeffs_real = coeffs_real / normalization
     coeffs_imag = coeffs_imag / normalization
@@ -126,24 +127,30 @@ def loss(coeffs, key, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correl
     G2 = forward(np.concatenate((coeffs_real, coeffs_imag)), key)
     G2 = G2 / np.sum(np.abs(G2))
 
+    coeffs_ = coeffs_real + 1j * coeffs_imag
     if loss_type is 'l1':
         return l1_loss(G2, G2t)
     if loss_type is 'l2':
         return l2_loss(G2, G2t)
     if loss_type is 'kl':
         return kl_loss(G2, G2t, eps=1e-2)
+    if loss_type is 'bhattacharyya':
+        return bhattacharyya_loss(G2, G2t)
     if loss_type is 'kl_sparse':
         return 0.5 * kl_loss(G2, G2t, eps=1e-2) + 0.5 * l1_loss(
-            G2[..., onp.delete(onp.arange(n_coeff ** 2), [30, 40, 50])])
+            G2[..., onp.delete(onp.arange(n_coeff_projections ** 2), [30, 40, 50])])
     if loss_type is 'kl_sparse_balanced':
-        return 0.5 * kl_loss(G2, G2t, eps=1e-2) + \
-               0.25 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff ** 2), [30, 40, 50])]) + \
-               0.25 * (
+        return kl_loss(G2, G2t, eps=1e-2) + \
+               4 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff_projections ** 2), [30, 40, 50])]) + \
+               1e2 * (
                        np.sum(np.abs(G2[..., 30] - G2[..., 40])) +
                        np.sum(np.abs(G2[..., 30] - G2[..., 50])) +
-                       np.sum(np.abs(G2[..., 40] - G2[..., 50])))
+                       np.sum(np.abs(G2[..., 40] - G2[..., 50]))) + \
+               1e-4 * np.sum(np.abs(coeffs_)) + \
+               10e3 * np.sum(np.abs(coeffs_[np.array([1, 3, 6, 8, 11, 13])])) + \
+               10 * np.sum(np.abs(G2[..., np.array([8, 72, 34, 66, 14, 46, 42, 58, 22, 38])]))
     if loss_type is 'sparse_balanced':
-        return 0.5 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff ** 2), [30, 40, 50])]) + \
+        return 0.5 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff_projections ** 2), [30, 40, 50])]) + \
                0.5 * (
                        np.sum(np.abs(G2[..., 30] - G2[..., 40])) +
                        np.sum(np.abs(G2[..., 30] - G2[..., 50])) +
@@ -153,7 +160,7 @@ def loss(coeffs, key, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correl
     if loss_type is 'kl_l2':
         return 0.5 * kl_loss(G2, G2t, eps=1e-2) + 0.5 * l2_loss(G2, G2t)
     if loss_type is 'wass':
-        return sinkhorn_loss(G2, G2t, n_coeff, eps=1e-3, max_iters=100, stop_thresh=None)
+        return sinkhorn_loss(G2, G2t, n_coeff_projections, eps=1e-3, max_iters=100, stop_thresh=None)
     else:
         raise Exception('Nonstandard loss choice')
 
@@ -170,7 +177,6 @@ if learn_mode:
     print("--- training mode ---")
     # load target P, G2
     G2t = pmap(lambda x: np.load(Pt_path + targert_folder + 'G2.npy'))(np.arange(num_devices))
-    coeffs_gt = np.load(Pt_path + targert_folder + 'HG_coeffs.npy')
 
     assert len(coeffs_real + 1j * coeffs_imag) == len(
         coeffs_gt), "HG parameters and its ground truth must contain same length"
@@ -191,12 +197,18 @@ if learn_mode:
         batch_loss, opt_state = update(opt_state, idx, keys, G2t)
         obj_loss_epoch += batch_loss[0].item()
         curr_coeffs = get_params(opt_state)
-        obj_loss.append(obj_loss_epoch)
+        obj_loss_trn.append(batch_loss[0].item())
+
+        # validate training parameters
+        keys = random.split(random.PRNGKey(seed + num_epochs + epoch), num_devices)
+        batch_loss_vld = validate(opt_state, keys, G2t)
+        obj_loss_vld.append(batch_loss_vld[0].item())
+
         epoch_time = time.time() - start_time_epoch
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
 
-        coeffs_real, coeffs_imag = curr_coeffs[:, :n_coeff], curr_coeffs[:, n_coeff:2 * n_coeff]
+        coeffs_real, coeffs_imag = curr_coeffs[:, :n_coeff_pump], curr_coeffs[:, n_coeff_pump:2 * n_coeff_pump]
         normalization = np.sqrt(np.sum(np.abs(coeffs_real) ** 2 + np.abs(coeffs_imag) ** 2, 1, keepdims=True))
         coeffs_real = coeffs_real / normalization
         coeffs_imag = coeffs_imag / normalization
@@ -230,8 +242,8 @@ if learn_mode:
         os.makedirs(curr_dir)
     exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
     exp_details.write(
-        make_beam_from_HG_str(Pump.hermite_str, coeffs[0, :n_coeff] + 1j * coeffs[0, n_coeff:2 * n_coeff], coeffs_str,
-                              coeffs_gt))
+        make_beam_from_HG_str(Pump.hermite_str,
+                              coeffs[0, :n_coeff_pump] + 1j * coeffs[0, n_coeff_pump:2 * n_coeff_pump], coeffs_str))
     exp_details.close()
 
     plt.plot(obj_loss, 'r')
@@ -271,7 +283,7 @@ if save_res or save_tgt or show_res:
 
     G2 = pmap(forward, axis_name='device')(coeffs, keys)
     G2 = G2[0]
-    coeffs = coeffs[0, :n_coeff] + 1j * coeffs[0, n_coeff:2 * n_coeff]
+    coeffs = coeffs[0, :n_coeff_pump] + 1j * coeffs[0, n_coeff_pump:2 * n_coeff_pump]
 
     if save_tgt:
         print("--- saving targets ---")

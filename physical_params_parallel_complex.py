@@ -28,6 +28,9 @@ max_mode_l = 4
 max_mode_x = 10
 max_mode_y = 1
 
+max_angular_mode_pump = 2
+max_radial_mode_pump = 3
+
 # pump
 lam_pump = 404e-9
 delta = 1
@@ -68,12 +71,14 @@ def projection_crystal_modes():
         max_mode1 = 2 * max_mode_l + 1
         max_mode2 = max_mode_p
 
-    n_coeff = max_mode1 * max_mode2  # Total number of pump/projection modes
-
     # set the number of modes (radial for LG or y for HG) to allow the crystal to learn
-    max_mode_crystal = 5
+    max_radial_mode_crystal = 5
 
-    return n_coeff, max_mode1, max_mode2, max_mode_crystal
+    n_coeff_projections = max_mode1 * max_mode2  # Total number of projection modes
+    n_coeff_pump = (2 * max_angular_mode_pump + 1) * max_radial_mode_pump  # Total number of projection modes
+
+    return n_coeff_projections, n_coeff_pump, max_mode1, max_mode2, \
+           max_radial_mode_crystal, max_radial_mode_pump, max_angular_mode_pump
 
 
 def HG_coeff_array(coeff_str, n_coeff):  # TODO: change HG_coeff_array name to a genereal name
@@ -109,27 +114,8 @@ def HG_coeff_array(coeff_str, n_coeff):  # TODO: change HG_coeff_array name to a
         coeffs_imag = index_update(coeffs_imag, max_mode_l + 4, 0)
 
     elif (coeff_str == "LG_uniform"):
-        coeffs_real = np.zeros(n_coeff, dtype=np.float32)
-        coeffs_real = index_update(coeffs_real, max_mode_l - 4, 1)
-        coeffs_real = index_update(coeffs_real, max_mode_l - 3, 1)
-        coeffs_real = index_update(coeffs_real, max_mode_l - 2, 1)
-        coeffs_real = index_update(coeffs_real, max_mode_l - 1, 1)
-        coeffs_real = index_update(coeffs_real, max_mode_l, 1)
-        coeffs_real = index_update(coeffs_real, max_mode_l + 1, 1)
-        coeffs_real = index_update(coeffs_real, max_mode_l + 2, 1)
-        coeffs_real = index_update(coeffs_real, max_mode_l + 3, 1)
-        coeffs_real = index_update(coeffs_real, max_mode_l + 4, 1)
-
-        coeffs_imag = np.zeros(n_coeff, dtype=np.float32)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l - 4, 1)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l - 3, 1)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l - 2, 1)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l - 1, 1)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l, 1)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l + 1, 1)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l + 2, 1)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l + 3, 1)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l + 4, 1)
+        coeffs_real = np.ones(n_coeff, dtype=np.float32)
+        coeffs_imag = np.ones(n_coeff, dtype=np.float32)
     elif (coeff_str == "HG01"):
         coeffs = np.zeros(n_coeff, dtype=complex)
         coeffs = index_update(coeffs, 1, 1.0)
