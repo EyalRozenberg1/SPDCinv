@@ -92,26 +92,10 @@ def HG_coeff_array(coeff_str, n_coeff):  # TODO: change HG_coeff_array name to a
         coeffs = index_update(coeffs, 0, 1.0)
     elif (coeff_str == "LG00"):  # index of LG_lp = p(2*max_mode_l+1) + max_mode_l + l
         coeffs_real = np.zeros(n_coeff, dtype=np.float32)
-        coeffs_real = index_update(coeffs_real, max_mode_l - 4, 0)
-        coeffs_real = index_update(coeffs_real, max_mode_l - 3, 0)
-        coeffs_real = index_update(coeffs_real, max_mode_l - 2, 0)
-        coeffs_real = index_update(coeffs_real, max_mode_l - 1, 0)
-        coeffs_real = index_update(coeffs_real, max_mode_l, 1)
-        coeffs_real = index_update(coeffs_real, max_mode_l + 1, 0)
-        coeffs_real = index_update(coeffs_real, max_mode_l + 2, 0)
-        coeffs_real = index_update(coeffs_real, max_mode_l + 3, 0)
-        coeffs_real = index_update(coeffs_real, max_mode_l + 4, 0)
+        coeffs_real = index_update(coeffs_real, max_radial_mode_pump, 1)
 
         coeffs_imag = np.zeros(n_coeff, dtype=np.float32)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l - 4, 0)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l - 3, 0)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l - 2, 0)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l - 1, 0)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l, 0)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l + 1, 0)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l + 2, 0)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l + 3, 0)
-        coeffs_imag = index_update(coeffs_imag, max_mode_l + 4, 0)
+        coeffs_imag = index_update(coeffs_imag, max_radial_mode_pump, 1)
 
     elif (coeff_str == "LG_uniform"):
         coeffs_real = np.ones(n_coeff, dtype=np.float32)

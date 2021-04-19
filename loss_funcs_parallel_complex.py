@@ -35,9 +35,9 @@ def kl_loss(a, b, eps=1e-7):
 # Bhattacharyya #
 #################
 @jit
-def bhattacharyya_loss(a, b):
+def bhattacharyya_loss(a, b, eps=1e-10):
     # Bhattacharyya distance #
-    return 1. - np.sum(np.sqrt(np.abs(a * b)))
+    return np.sqrt(1. - np.sum(np.sqrt(a * b + eps)))
 
 
 #################

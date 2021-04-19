@@ -149,6 +149,16 @@ def loss(coeffs, key, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correl
                1e-4 * np.sum(np.abs(coeffs_)) + \
                10e3 * np.sum(np.abs(coeffs_[np.array([1, 3, 6, 8, 11, 13])])) + \
                10 * np.sum(np.abs(G2[..., np.array([8, 72, 34, 66, 14, 46, 42, 58, 22, 38])]))
+    if loss_type is 'bhattacharyya_sparse_balanced':
+        return bhattacharyya_loss(G2, G2t) + \
+               150 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff_projections ** 2), [30, 40, 50])]) + \
+               150 * (
+                       np.sum(np.abs(G2[..., 30] - G2[..., 40])) +
+                       np.sum(np.abs(G2[..., 30] - G2[..., 50])) +
+                       np.sum(np.abs(G2[..., 40] - G2[..., 50]))) + \
+               1e-4 * np.sum(np.abs(coeffs_)) + \
+               10 * np.sum(np.abs(G2[..., np.array([8, 72, 34, 66, 14, 46, 42, 58, 22, 38])])) + \
+               10 * np.sum(np.abs(coeffs_[np.array([1, 3, 6, 8, 11, 13])]))
     if loss_type is 'sparse_balanced':
         return 0.5 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff_projections ** 2), [30, 40, 50])]) + \
                0.5 * (
