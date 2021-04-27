@@ -49,18 +49,21 @@ initialize all strcutres of crystal
     - poliong period (optional): the poling period of the crystal
 '''
 class Crystal:
-    def __init__(self, dx, dy, dz, MaxX, MaxY, MaxZ, d, period=0):
-        self.dz = dz  # resolution of z axis
-        self.dx = dx  # resolution of x axis
-        self.dy = dy  # resolution of y axis
+    def __init__(self, dx, dy, dz, MaxX, MaxY, MaxZ, d, period=0, learn_crystal=False):
+        self.dz   = dz  # resolution of z axis
+        self.dx   = dx  # resolution of x axis
+        self.dy   = dy  # resolution of y axis
         self.MaxX = MaxX
         self.MaxY = MaxY
         self.MaxZ = MaxZ
-        self.x = np.arange(-MaxX, MaxX, dx)  # x axis, length 2*MaxX (transverse)
-        self.y = np.arange(-MaxY, MaxY, dy)  # y axis, length 2*MaxY  (transverse)
-        self.z = np.arange(-MaxZ / 2, MaxZ / 2, dz)  # z axis, length MaxZ (propagation)
+        self.x    = np.arange(-MaxX, MaxX, dx)  # x axis, length 2*MaxX (transverse)
+        self.y    = np.arange(-MaxY, MaxY, dy)  # y axis, length 2*MaxY  (transverse)
+        self.z    = np.arange(-MaxZ / 2, MaxZ / 2, dz)  # z axis, length MaxZ (propagation)
         self.ctype = n_KTP_Kato  # refractive index function
-        # self.slab = PP_crystal_slab_2D
+        if learn_crystal:
+            self.slab = PP_crystal_slab_2D
+        else:
+            self.slab = PP_crystal_slab
         self.d = d
         self.poling_period = period
 
@@ -77,56 +80,99 @@ compute everything to do with a beam.
     -power - peak power of the beam, in W. optional
 '''
 class Beam:
-    def __init__(self, lam, crystal, ax, T, waist=0, power=0,  type='LG', max_mode1=0, max_mode2=0, z=0, n_coeff_pump=None):
-        self.lam = lam  # wavelength
-        # self.waist = waist  # waist
-        self.n = crystal.ctype(lam * 1e6, T, ax)  # refractive index
-        self.w = 2 * np.pi * c / lam  # frequency
-        self.k = 2 * np.pi * crystal.ctype(lam * 1e6, T, ax) / lam  # wave vector
-        # self.b = waist ** 2 * self.k  #
-        self.power = power  # beam power
+    def __init__(self, lam, crystal, ax, T, waist, power=0,
+                 type='LG', max_mode1=0, max_mode2=0, z=0, n_coeff_pump=None):
+        
+        self.lam        = lam
+        self.n          = crystal.ctype(lam * 1e6, T, ax)  # refractive index
+        self.w          = 2 * np.pi * c / lam  # frequency
+        self.k          = 2 * np.pi * crystal.ctype(lam * 1e6, T, ax) / lam  # wave vector
+        self.power      = power  # beam power
         self.crystal_dx = crystal.dx
         self.crystal_dy = crystal.dy
+        self.type       = type
+
+        if n_coeff_pump is not None:
+            self.X, self.Y    = np.meshgrid(crystal.x, crystal.y)
+            self.z            = z
+            self.max_mode1    = max_mode1
+            self.max_mode2    = max_mode2
+            self.lam          = lam
+            self.n_coeff_pump = n_coeff_pump
+
+        
         if max_mode1 and max_mode2:
-            if type == 'LG':
+            if self.type == 'LG':
                 if n_coeff_pump is None:
                     [X, Y] = np.meshgrid(crystal.x, crystal.y)
-                    self.hermite_arr, self.hermite_str = LaguerreBank(lam, self.n, waist, max_mode1, max_mode2, X, Y, z)
+                    self.pump_basis_arr, self.pump_basis_str = LaguerreBank(lam, self.n, waist,
+                                                                            max_mode1, max_mode2, X, Y, z)
                 else:
-                    self.type = type
-                    self.X, self.Y = np.meshgrid(crystal.x, crystal.y)
-                    self.z = z
-                    self.max_mode1 = max_mode1
-                    self.max_mode2 = max_mode2
-                    self.lam = lam
-                    self.n_coeff_pump = n_coeff_pump
-                    self.max_mode_l = int((self.max_mode1 - 1) / 2)
-                    self.max_mode_p = self.max_mode2
+                    self.max_mode_l     = int((self.max_mode1 - 1) / 2)
+                    self.max_mode_p     = self.max_mode2
 
                     self.coef = np.zeros(self.n_coeff_pump, dtype=np.float32)
                     idx = 0
                     for p in range(self.max_mode_p):
                         for l in range(-self.max_mode_l, self.max_mode_l + 1):
-                            self.coef = index_update(self.coef, idx, np.sqrt(2 * math.factorial(p) / (np.pi * math.factorial(p + np.abs(l)))))
+
+                            self.coef = index_update(
+                                self.coef, idx,
+                                np.sqrt(2 * math.factorial(p) / (np.pi * math.factorial(p + np.abs(l))))
+                            )
+
                             idx += 1
 
-                    self.hermite_arr, self.hermite_str = LaguerreBank(lam, self.n, waist[0]*1e-5, max_mode1, max_mode2, self.X, self.Y, z)
-                    # self.generate_basis(w0=waist)
-            elif type == "HG":
-                [X, Y] = np.meshgrid(crystal.x, crystal.y)
-                self.hermite_arr, self.hermite_str = HermiteBank(lam, self.n, waist, max_mode1, max_mode2, X, Y, z)
+                    self.pump_basis_arr, self.pump_basis_str = LaguerreBank(lam, self.n, waist[0]*1e-5,
+                                                                            max_mode1, max_mode2, self.X, self.Y, z)
 
-    def create_profile(self, HG_parameters, w0=None):
+            elif self.type == "HG":
+                if n_coeff_pump is None:
+                    [X, Y] = np.meshgrid(crystal.x, crystal.y)
+                    self.pump_basis_arr, self.pump_basis_str = HermiteBank(lam, self.n, waist,
+                                                                           max_mode1, max_mode2, X, Y, z)
+
+                else:
+                    self.max_mode_x     = self.max_mode1
+                    self.max_mode_y     = self.max_mode2
+
+                    self.coef = np.zeros(self.n_coeff_pump, dtype=np.float32)
+                    idx = 0
+                    for ny in range(self.max_mode_y):
+                        for nx in range(self.max_mode_x):
+                            coefx = np.sqrt(np.sqrt(2 / pi) / (2 ** nx * math.factorial(nx)))
+                            coefy = np.sqrt(np.sqrt(2 / pi) / (2 ** ny * math.factorial(ny)))
+                            self.coef = index_update(
+                                self.coef, idx,
+                                coefx * coefy
+                            )
+
+                            idx += 1
+
+                    self.pump_basis_arr, self.pump_basis_str = HermiteBank(lam, self.n, waist[0] * 1e-5,
+                                                                            max_mode1, max_mode2, self.X, self.Y, z)
+
+    def create_profile(self, pump_coeffs, w0=None):
         if w0 is not None:
             E_temp = 0.
-            idx = 0
-            for p in range(self.max_mode_p):
-                for l in range(-self.max_mode_l, self.max_mode_l + 1):
-                    E_temp += HG_parameters[idx] * Laguerre_gauss(self.lam, self.n, w0[idx]*1e-5, l, p, self.z, self.X, self.Y, self.coef[idx])
-                    idx += 1
+            idx    = 0
+
+            if self.type == 'LG':
+                for p in range(self.max_mode_p):
+                    for l in range(-self.max_mode_l, self.max_mode_l + 1):
+                        E_temp += pump_coeffs[idx] * Laguerre_gauss(self.lam, self.n, w0[idx]*1e-5,
+                                                                    l, p, self.z, self.X, self.Y, self.coef[idx])
+                        idx += 1
+
+            elif self.type == "HG":
+                for ny in range(self.max_mode_y):
+                    for nx in range(self.max_mode_x):
+                        E_temp += pump_coeffs[idx] * Hermite_gauss(self.lam, self.n, w0[idx]*1e-5,
+                                                                   nx, ny, self.z, self.X, self.Y, self.coef[idx])
+                        idx += 1
         else:
-            E_temp = make_beam_from_HG(self.hermite_arr, HG_parameters)
-        #self.E = E_temp
+            E_temp = make_beam_from_coeffs(self.pump_basis_arr, pump_coeffs)
+
         self.E = fix_power(E_temp, self.power, self.n, self.crystal_dx, self.crystal_dy)[np.newaxis, :, :]
 
 
@@ -140,13 +186,14 @@ initialize E_out and E_vac, for a given beam (class Beam) and crystal (class Cry
 '''
 class Field:
     def __init__(self, beam, crystal, vac_rnd, N):
-        Nx = len(crystal.x)
-        Ny = len(crystal.y)
-        self.E_out = np.zeros([N, Nx, Ny])
-        vac = np.sqrt(h_bar * beam.w / (2 * eps0 * beam.n ** 2 * crystal.dx * crystal.dy * crystal.MaxZ))
-        self.E_vac = vac * (vac_rnd[:,0] + 1j * vac_rnd[:,1]) / np.sqrt(2)
-        self.kappa = 2 * 1j * beam.w ** 2 / (beam.k * c ** 2)  # we leave d_33 out and add it in the propagation function.
-        self.k = beam.k
+        Nx          = len(crystal.x)
+        Ny          = len(crystal.y)
+        self.E_out  = np.zeros([N, Nx, Ny])
+        vac         = np.sqrt(h_bar * beam.w / (2 * eps0 * beam.n ** 2 * crystal.dx * crystal.dy * crystal.MaxZ))
+        self.E_vac  = vac * (vac_rnd[:, 0] + 1j * vac_rnd[:, 1]) / np.sqrt(2)
+        self.kappa  = 2 * 1j * beam.w ** 2 / (beam.k * c ** 2)
+        # we leave d_33 out and add it in the propagation function.
+        self.k      = beam.k
 
 
 #######################################################
@@ -156,11 +203,10 @@ class Field:
 Periodically poled crystal slab
 create the crystal slab at point z in the crystal, for poling period 2pi/delta_k
 '''
-#TODO: Add an if that selects between PP_crystal_slab and PP_crystal_slab_2D (motivation: allow learning poling vs only pump)
-#@jit
-def PP_crystal_slab(delta_k, z):
+def PP_crystal_slab(delta_k, z, crystal_profile):
     return np.sign(np.cos(np.abs(delta_k) * z))
-#@jit
+
+
 def PP_crystal_slab_2D(delta_k, z, crystal_profile):
     magnitude = np.abs(crystal_profile)
     phase = np.angle(crystal_profile)
@@ -168,41 +214,38 @@ def PP_crystal_slab_2D(delta_k, z, crystal_profile):
 
 
 class Poling_profile:
-    def __init__(self, phi_scale, r_scale, x, y,  MaxX, length1, length2, series_type):
-        if series_type == 'taylor':
-            NormX = phi_scale * x / MaxX
-            taylor_series = np.array([NormX ** i for i in range(length1)])
-            self.series = taylor_series
-        elif series_type == 'fourier_taylor':
-            [X,Y] = np.meshgrid(x, y);
-            phi_angle = np.arctan2(Y, X)
-            rad = np.sqrt(X**2+Y**2) / r_scale
-            fourier_series = np.array([rad**p * np.exp(-rad**2) * np.exp(-1j* l * phi_angle) for p in range(length2) for l in range(-length1,length1+1)])
-            self.series = fourier_series
-        elif series_type == 'fourier_hankel':
-            [X,Y] = np.meshgrid(x, y)
-            phi_angle = np.arctan2(Y, X)
-            rad = np.sqrt(X**2+Y**2) / r_scale
-            fourier_series = np.array([sp.jv(0, sp.jn_zeros(0,p+1)[-1]*rad) * np.exp(-1j* l * phi_angle) for p in range(length2) for l in range(-length1,length1+1)])
-            self.series = fourier_series
-        elif series_type == 'hermite':
-            [X,Y] = np.meshgrid(x, y)
-            fourier_series = np.array([np.sqrt(np.sqrt(2/pi) / (2**m * math.factorial(m))) * np.sqrt(np.sqrt(2/pi) / (2**n * math.factorial(n))) * np.exp(-(X**2 + Y**2)/r_scale**2) * HermiteP(m, np.sqrt(2)*Y/r_scale) *
-                                       HermiteP(n, np.sqrt(2)*X/r_scale) for m in range(length2) for n in range(length1)])
-            self.series = fourier_series
+    def __init__(self, r_scale, x, y, length1, length2, series_type):
+
+        if series_type == 'FT': # Fourier-Taylor
+            length1         = int((length1 - 1) / 2)
+            [X,Y]           = np.meshgrid(x, y)
+            phi_angle       = np.arctan2(Y, X)
+            rad             = np.sqrt(X ** 2 + Y ** 2) / r_scale
+            self.series     = np.array([rad**p * np.exp(-rad**2) *
+                                        np.exp(-1j * l * phi_angle)
+                                        for p in range(length2) for l in range(-length1, length1 + 1)])
+
+        elif series_type == 'FB':  # Fourier-Bessel
+            length1         = int((length1 - 1) / 2)
+            [X,Y]           = np.meshgrid(x, y)
+            phi_angle       = np.arctan2(Y, X)
+            rad             = np.sqrt(X ** 2 + Y ** 2) / r_scale
+            self.series     = np.array([sp.jv(0, sp.jn_zeros(0, p + 1)[-1] * rad) *
+                                        np.exp(-1j * l * phi_angle)
+                                        for p in range(length2) for l in range(-length1, length1 + 1)])
+
+        elif series_type == 'HG':  # Hermite-Gauss
+            [X,Y]       = np.meshgrid(x, y)
+            self.series = np.array([np.sqrt(np.sqrt(2 / pi) / (2 ** m * math.factorial(m))) *
+                                    np.sqrt(np.sqrt(2 / pi) / (2 ** n * math.factorial(n))) *
+                                    np.exp(-(X ** 2 + Y ** 2)/r_scale ** 2) * HermiteP(m, np.sqrt(2) * Y / r_scale) *
+                                    HermiteP(n, np.sqrt(2) * X / r_scale)
+                                    for m in range(length2) for n in range(length1)])
 
 
     def create_profile(self, poling_parameters):
-        #self.crystal_profile = (poling_parameters[:, None] * self.series).sum(0)
-        temp = 0
-        for i in range((poling_parameters).size):
-            temp = temp +  self.series[i]*poling_parameters[i]
-        normalization_factor = np.max(np.abs(temp))
-        temp = temp / normalization_factor
+        self.crystal_profile = (poling_parameters[:, None, None] * self.series).sum(0)
 
-        self.crystal_profile = temp
-        self.normalization = normalization_factor
-        self.poling_parameters_norm = poling_parameters / normalization_factor #one of these is redundant maybe?
 
 '''
 Refractive index for MgCLN, based on Gayer et al, APB 2008
@@ -224,16 +267,15 @@ def nz_MgCLN_Gayer(lam, T):
 
 
 def n_KTP_Kato(lam, T, ax):
+    dT = (T - 20)
+
     if ax == "z":
-        nz_no_T_dep = np.sqrt(4.59423+0.06206/(lam**2-0.04763)+110.80672/(lam**2-86.12171))
-        dT = (T-20)
-        dnz = (0.9221/lam**3-2.9220/lam**2+3.6677/lam-0.1897)*1e-5*dT
-        n = nz_no_T_dep+dnz
+        n_no_T_dep = np.sqrt(4.59423 + 0.06206 / (lam ** 2 - 0.04763) + 110.80672 / (lam ** 2 - 86.12171))
+        dn         = (0.9221 / lam ** 3 - 2.9220 / lam ** 2 + 3.6677 / lam - 0.1897) * 1e-5 * dT
     if ax == "y":
-        ny_no_T_dep = np.sqrt(3.45018+0.04341/(lam**2-0.04597)+16.98825/(lam**2-39.43799))
-        dT=(T-20)
-        dny=(0.1997/lam**3-0.4063/lam**2+0.5154/lam+0.5425)*1e-5*dT
-        n=ny_no_T_dep+dny
+        n_no_T_dep = np.sqrt(3.45018 + 0.04341 / (lam ** 2 - 0.04597) + 16.98825 / (lam ** 2 - 39.43799))
+        dn         = (0.1997 / lam ** 3 - 0.4063 / lam ** 2 + 0.5154 / lam + 0.5425) * 1e-5 * dT
+    n           = n_no_T_dep + dn
     return n
 
 
@@ -241,11 +283,10 @@ def n_KTP_Kato(lam, T, ax):
 Crystal propagation
 propagate through crystal using split step Fourier for 4 fields: e_out and E_vac, signal and idler.
 '''
-def crystal_prop(Pump, Siganl_field, Idler_field, crystal, Poling=None):
-    #M is the number of Fourier coefficient in the poling. Default: M=0 is only the first order
+def crystal_prop(Pump, Siganl_field, Idler_field, crystal, Poling_crystal_profile=None):
     # propagate
-    x = crystal.x
-    y = crystal.y
+    x  = crystal.x
+    y  = crystal.y
     dz = crystal.dz
 
     for z in crystal.z:
@@ -253,10 +294,9 @@ def crystal_prop(Pump, Siganl_field, Idler_field, crystal, Poling=None):
         E_pump = propagate(Pump.E, x, y, Pump.k, z) * np.exp(-1j * Pump.k * z)
 
         # crystal slab:
-        #TODO: Add an if that selects between PP_crystal_slab and PP_crystal_slab_2D (motivation: allow learning poling vs only pump)
-        #PP = PP_crystal_slab_2D(crystal.poling_period, z, Poling.crystal_profile) 
-        PP = PP_crystal_slab(crystal.poling_period, z)
-        # cooupled wave equations - split step
+        PP = crystal.slab(crystal.poling_period, z, Poling_crystal_profile)
+
+        # coupled wave equations - split step
         # signal:
         dEs_out_dz = Siganl_field.kappa * crystal.d * PP * E_pump * np.conj(Idler_field.E_vac)
         dEs_vac_dz = Siganl_field.kappa * crystal.d * PP * E_pump * np.conj(Idler_field.E_out)
@@ -276,8 +316,8 @@ def crystal_prop(Pump, Siganl_field, Idler_field, crystal, Poling=None):
         Siganl_field.E_vac = propagate(Siganl_field.E_vac, x, y, Siganl_field.k, dz) * np.exp(-1j * Siganl_field.k * dz)
         Idler_field.E_out  = propagate(Idler_field.E_out, x, y, Idler_field.k, dz) * np.exp(-1j * Idler_field.k * dz)
         Idler_field.E_vac  = propagate(Idler_field.E_vac, x, y, Idler_field.k, dz) * np.exp(-1j * Idler_field.k * dz)
-
     return
+
 
 '''
 Free Space propagation using the free space transfer function 
@@ -291,22 +331,27 @@ Using CGS, or MKS, Boyd 2nd eddition
 '''
 # @jit
 def propagate(A, x, y, k, dz):
-    dx = np.abs(x[1] - x[0])
-    dy = np.abs(y[1] - y[0])
+    dx      = np.abs(x[1] - x[0])
+    dy      = np.abs(y[1] - y[0])
+
     # define the fourier vectors
-    X, Y = np.meshgrid(x, y, indexing='ij')
-    KX = 2 * np.pi * (X / dx) / (np.size(X, 1) * dx)
-    KY = 2 * np.pi * (Y / dy) / (np.size(Y, 1) * dy)
+    X, Y    = np.meshgrid(x, y, indexing='ij')
+    KX      = 2 * np.pi * (X / dx) / (np.size(X, 1) * dx)
+    KY      = 2 * np.pi * (Y / dy) / (np.size(Y, 1) * dy)
+
     # The Free space transfer function of propagation, using the Fresnel approximation
     # (from "Engineering optics with matlab"/ing-ChungPoon&TaegeunKim):
-    H_w = np.exp(-1j * dz * (np.square(KX) + np.square(KY)) / (2 * k))
+    H_w     = np.exp(-1j * dz * (np.square(KX) + np.square(KY)) / (2 * k))
     # (inverse fast Fourier transform shift). For matrices, ifftshift(X) swaps the
     # first quadrant with the third and the second quadrant with the fourth.
     H_w = np.fft.ifftshift(H_w)
+
     # Fourier Transform: move to k-space
     G = np.fft.fft2(A)  # The two-dimensional discrete Fourier transform (DFT) of A.
+
     # propoagte in the fourier space
     F = np.multiply(G, H_w)
+
     # inverse Fourier Transform: go back to real space
     Eout = np.fft.ifft2(F)  # [in real space]. E1 is the two-dimensional INVERSE discrete Fourier transform (DFT) of F1
     return Eout
@@ -372,16 +417,17 @@ recives:
 
 #    return Unx, Uny
 
-def Hermite_gauss(lam, ind_ref, W0, nx, ny, z, X, Y):
+def Hermite_gauss(lam, ind_ref, W0, nx, ny, z, X, Y, coef=None):
     k = 2 * np.pi * ind_ref / lam
     z0 = np.pi * W0 ** 2 * ind_ref / lam  # Rayleigh range
     Wz = W0 * np.sqrt(1 + (z / z0) ** 2)  # w(z), the variation of the spot size
 
     invR = z / ((z ** 2) + (z0 ** 2))  # radius of curvature
     gouy = (nx + ny + 1)*np.arctan(z/z0)
-    coefx = np.sqrt(np.sqrt(2/pi) / (2**nx * math.factorial(nx)))
-    coefy = np.sqrt(np.sqrt(2/pi) / (2**ny * math.factorial(ny)))
-    coef = coefx * coefy
+    if coef is None:
+        coefx = np.sqrt(np.sqrt(2/pi) / (2**nx * math.factorial(nx)))
+        coefy = np.sqrt(np.sqrt(2/pi) / (2**ny * math.factorial(ny)))
+        coef = coefx * coefy
     U = coef * \
         (W0/Wz) * np.exp(-(X**2 + Y**2) / Wz**2) * \
         HermiteP(nx, np.sqrt(2) * X / Wz) * \
@@ -406,8 +452,6 @@ receives:
       - P  = the total power of the beam. If this is not given then it is
        set to 1W (all in Air).
 '''
-
-
 def Laguerre_gauss(lam, ind_ref, W0, l, p, z, x, y, coef=None):
     k = 2 * np.pi * ind_ref / lam
     z0 = np.pi * W0 ** 2 * ind_ref/ lam  # Rayleigh range
@@ -448,27 +492,6 @@ def HermiteBank(lam, ind_ref, W0, max_mode1, max_mode2, x, y, z=0):
     return np.array(list(Hermite_dict.values())), [*Hermite_dict]
 
 
-
-#def HermiteBank(lam, ind_ref, W0x, W0y, max_mode1, max_mode2, x, y, z=0):
-#    hermite_dictx = {}
-#    hermite_dicty = {}
-#    hermite_dict = {}
-#
-#    for n in range(max_mode1):
-#        hermite_dictx[str(n)], temp = Hermite_gause2Dxy(lam, ind_ref, W0x, W0y, n, n, z, x, y)
-#    for n in range(max_mode2):
-#        temp, hermite_dicty[str(n)] = Hermite_gause2Dxy(lam, ind_ref, W0x, W0y, n, n, z, x, y)
-#
-#
-#    for n in range(max_mode1):
-#        for m in range(max_mode2):
-#            Uny = hermite_dicty[str(m)]
-#            Unx = hermite_dictx[str(n)]
-#            hermite_dict[str(n) + str(m)] = np.dot(Uny.reshape(len(Unx), 1), Unx.reshape(1, len(Unx)))
-
-#    return np.array(list(hermite_dict.values())), [*hermite_dict]
-
-
 '''
 LaguerreBank returns a dictionary of Laguerre gauss
 '''
@@ -483,50 +506,58 @@ def LaguerreBank(lam, ind_ref, W0, max_mode1, max_mode2, x, y, z=0):
     return np.array(list(Laguerre_dict.values())), [*Laguerre_dict]
 
 '''
-make a beam from HG modes
-hermite_dict  - a dictionary of HG modes. ordered in dictionary order (00,01,10,11)
-HG_parameters - the wieght of each mode in hermite_dict
+make a beam from basis modes
+pump_basis_arr  - a dictionary of basis modes. ordered in dictionary order (00,01,10,11)
+pump_coeffs - the wieght of each mode in pump_basis_arr
 these two have to have the same length!
 '''
 #@jit
-def make_beam_from_HG(hermite_arr, HG_parameters):
-    if len(HG_parameters) != len(hermite_arr):
+def make_beam_from_coeffs(pump_basis_arr, pump_coeffs):
+    if len(pump_coeffs) != len(pump_basis_arr):
         print('WRONG NUMBER OF PARAMETERS!!!')
         return
-    return (HG_parameters[:,None, None]*hermite_arr).sum(0)
+    return (pump_coeffs[:, None, None] * pump_basis_arr).sum(0)
 
 
 
-def make_beam_from_HG_str(hermite_str, HG_parameters, coeffs_str, HG_parameters_gt=None):
-    print_str = "initial HG coefficients string: {}\n\n".format(coeffs_str)
-    if len(HG_parameters.shape) > 1:
-        HG_parameters = HG_parameters[0]
-    if HG_parameters_gt is None:
-        print_str += 'HG coefficients:\n'
-        for n, mode_x in enumerate(hermite_str):
-            HG_str = ' : {:.4}\n'.format(HG_parameters[n])
-            print_str += 'HG' + mode_x + HG_str
+def type_beam_from_pump_str(type, pump_basis_str, pump_coeffs, coeffs_str, pump_coeffs_gt=None):
+    print_str = f'initial {type} pump coefficients string: {coeffs_str}\n\n'
+    if len(pump_coeffs.shape) > 1:
+        pump_coeffs = pump_coeffs[0]
+    if pump_coeffs_gt is None:
+        print_str += f'{type} coefficients:\n'
+        for n, mode_x in enumerate(pump_basis_str):
+            coeffs_str = ' : {:.4}\n'.format(pump_coeffs[n])
+            print_str += type + mode_x + coeffs_str
     else:
-        print_str += 'HG coefficients \t ground truth \n'
-        for n, mode_x in enumerate(hermite_str):
-            HG_str = ' : {:.4}\t\t\t {:.4}\n'.format(HG_parameters[n], HG_parameters_gt[n])
-            print_str += 'HG' + mode_x + HG_str
+        print_str += f'{type} coefficients \t ground truth \n'
+        for n, mode_x in enumerate(pump_basis_str):
+            coeffs_str = ' : {:.4}\t\t\t {:.4}\n'.format(pump_coeffs[n], pump_coeffs_gt[n])
+            print_str += type + mode_x + coeffs_str
     return print_str
 
-def make_taylor_from_phi_str(poling_parameters, poling_str, poling_parameters_gt=None):
-    print_str = "\n\n\ninitial Taylor coefficients string: {}\n\n".format(poling_str)
-    if len(poling_parameters.shape) > 1:
-        poling_parameters = poling_parameters[0]
-    if poling_parameters_gt is None:
-        print_str += 'Taylor-coeffs:\n'
-        for x, phi in enumerate(poling_parameters):
-            str = 'x^{} : {:.4}\n'.format(x, phi)
-            print_str += str
-    else:
-        print_str += 'Taylor-coeffs \t ground truth \n'
-        for x, phi in enumerate(poling_parameters):
-            str = 'x^{} : {:.4}\t\t\t {:.4}\n'.format(x, phi, poling_parameters_gt[x])
-            print_str += str
+
+def type_waists_from_pump_str(type, pump_basis_str, waist_coeffs):
+    print_str = '\n\n'
+
+    if len(waist_coeffs.shape) > 1:
+        waist_coeffs = waist_coeffs[0]
+
+    print_str += f'{type} waist coefficients string:\n'
+    for n, mode_x in enumerate(pump_basis_str):
+        coeffs_str = ' : {:.4}um\n'.format(waist_coeffs[n])
+        print_str += type + mode_x + coeffs_str
+    return print_str
+
+
+def type_poling_from_crystal_str(type, crystal_coeffs, crystal_str):
+    print_str = f'initial {type} crystal coefficients string: {crystal_str}\n\n'
+
+    print_str += f'{type} coefficients:\n'
+    for n in range(len(crystal_coeffs)):
+        coeffs_str = ' : {:.4}\n'.format(crystal_coeffs[n])
+        print_str += str(n) + coeffs_str
+
     return print_str
 
 
@@ -559,13 +590,13 @@ Both are matrices of the same size
 '''
 #@jit
 def project(projected_state, A, minval=0):
-    Nxx2           = A.shape[1]**2
+    Nxx2           = A.shape[1] ** 2
     N              = A.shape[0]
     Nh             = projected_state.shape[0]
-    projection     = (np.conj(projected_state)*A).reshape(Nh, N, Nxx2).sum(2)
-    normalization1 = np.abs(A**2).reshape(N, Nxx2).sum(1)
+    projection     = (np.conj(projected_state) * A).reshape(Nh, N, Nxx2).sum(2)
+    normalization1 = np.abs(A ** 2).reshape(N, Nxx2).sum(1)
     normalization2 = np.abs(projected_state**2).reshape(Nh, Nxx2).sum(1)
-    projection     = projection / np.sqrt(normalization1[None,:]*normalization2[:,None])
+    projection     = projection / np.sqrt(normalization1[None, :] * normalization2[:, None])
     #cond1          = np.abs(np.real(projection)) <= np.abs(minval)
     #cond2          = np.abs(np.imag(projection)) <= np.abs(minval)
     #projection     = cond1*(cond2*0+(1-cond2)*1j*np.imag(projection)) + (1-cond1)*(np.real(projection))
@@ -574,12 +605,12 @@ def project(projected_state, A, minval=0):
 Decompose a state A into modes defined in the dictionary
 '''
 #@jit
-def decompose(A, hermite_arr): #TODO: change name to be arbitrary, not just hermite_arr
-        # minval1 = np.abs(project(hermite_arr[0][None, :], hermite_arr[2][None, :]))
-        # minval = np.abs(project(hermite_arr[0][None, :], hermite_arr[1][None, :]))
+def decompose(A, pump_basis_arr):
+        # minval1 = np.abs(project(pump_basis_arr[0][None, :], pump_basis_arr[2][None, :]))
+        # minval = np.abs(project(pump_basis_arr[0][None, :], pump_basis_arr[1][None, :]))
         # minval = min(minval1, minval2) * 1.1
-        HG = hermite_arr[:, None]
-        projection = project(HG, A)
+        basis         = pump_basis_arr[:, None]
+        projection = project(basis, A)
         return np.transpose(projection)
 
 ''' 
@@ -603,7 +634,7 @@ def fix_power1(E_fix, E_original, beam, crystal):
 
 
 def kron1(a, b):
-   return (a[:,:, None, :, None] * b[:,None, :, None, :]).sum(0)
+   return (a[:, :, None, :, None] * b[:, None, :, None, :]).sum(0)
 
 def kron(a, b):
     # return (a[:, :, None, :, None] * b[:, None, :, None, :]).sum(0)

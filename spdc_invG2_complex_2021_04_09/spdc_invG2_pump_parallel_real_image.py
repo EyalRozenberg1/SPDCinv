@@ -57,7 +57,7 @@ g1_ss_normalization = G1_Normalization(Signal.w)
 g1_ii_normalization = G1_Normalization(Idler.w)
 
 # Initialize pump and crystal coefficients
-coeffs_real, coeffs_imag            = HG_coeff_array(coeffs_str, max_mode1*max_mode2)
+coeffs_real, coeffs_imag            = Pump_coeff_array(coeffs_str, max_mode1 * max_mode2)
 
 # replicate parameters for gpus
 coeffs = pmap(lambda x: np.concatenate((coeffs_real, coeffs_imag)))(np.arange(num_devices))
@@ -213,7 +213,7 @@ if learn_mode:
     else:
         os.makedirs(curr_dir)
     exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
-    exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs[0, :n_coeff] + 1j*coeffs[0, n_coeff:2*n_coeff], coeffs_str, coeffs_gt))
+    exp_details.write(type_beam_from_pump_str(Pump.hermite_str, coeffs[0, :n_coeff] + 1j * coeffs[0, n_coeff:2 * n_coeff], coeffs_str, coeffs_gt))
     exp_details.close()
 
     plt.plot(obj_loss, 'r')
@@ -272,9 +272,9 @@ if save_res or save_tgt or show_res:
 
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
+            exp_details.write(type_beam_from_pump_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
         else:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+            exp_details.write(type_beam_from_pump_str(Pump.hermite_str, coeffs, coeffs_str))
         exp_details.close()
 
     if show_res or save_res:
@@ -289,9 +289,9 @@ if save_res or save_tgt or show_res:
 
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         if learn_mode:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
+            exp_details.write(type_beam_from_pump_str(Pump.hermite_str, coeffs, coeffs_str, coeffs_gt))
         else:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+            exp_details.write(type_beam_from_pump_str(Pump.hermite_str, coeffs, coeffs_str))
         exp_details.close()
 
 
