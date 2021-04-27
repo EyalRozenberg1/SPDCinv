@@ -1,13 +1,15 @@
 l = 0:1:9;
-G2_sim = double(readNPY('C:\Users\eyalr\Documents\Projects\PyCharm\SPDCinv\SPDCinv\G2_reduced_2020-12-03_Nb500_Nx61Ny61_z0.001_steps100_loss_l1_N500_epochs500_qubit_n00n.npy'));
-G2_sim = reshape(G2_sim,[10,10]);
+G2_sim = double(readNPY('G2 (29).npy'));
+G2_sim = reshape(G2_sim,[9,9]);
 G2_sim = abs(G2_sim)/sum(sum(abs(G2_sim)));
 figure; imagesc(l,l,G2_sim); axis square; colorbar; title('simulation')
 
 h=figure; b=bar3(G2_sim); 
+zlim([0 0.22])
 xlabel('j (idler)'); ylabel('u (signal)'); zlabel('probability');
-set(gca, 'XTickLabel', {'0', '1', '2', '3', '4', '5', '6', '7', '8','9'}, 'FontSize', 20, 'FontName', 'Calibri')
-set(gca, 'YTickLabel',{'0', '1', '2', '3', '4', '5', '6', '7', '8','9'}, 'FontSize', 20, 'FontName', 'Calibri')
+title('Sim 30mm, MaxX=300, dx=8, dz=10, N=4000')
+set(gca, 'XTickLabel', {'-4', '-3', '-2', '-1', '0', '1', '2', '3', '4','5'}, 'FontSize', 20, 'FontName', 'Calibri')
+set(gca, 'YTickLabel',{'-4', '-3', '-2', '-1', '0', '1', '2', '3', '4','5'}, 'FontSize', 20, 'FontName', 'Calibri')
 % colormap pink;
 for k = 1:length(b)
     zdata = get(b(k),'ZData');

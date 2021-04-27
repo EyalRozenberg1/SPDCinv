@@ -22,6 +22,10 @@ def G2_calc(a, b, c, batch_size):
     G1_si_dagger = kron(np.conj(a), b) / batch_size
     Q_si         = kron(c, a) / batch_size
     Q_si_dagger  = kron(np.conj(a), np.conj(c)) / batch_size
+    # Q_ss         = kron(d, a) / batch_size
+    # Q_ss_dagger  = kron(np.conj(a), np.conj(d)) / batch_size
+    # Q_ii         = kron(c, b) / batch_size
+    # Q_ii_dagger  = kron(np.conj(b), np.conj(c)) / batch_size
 
     return (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
 

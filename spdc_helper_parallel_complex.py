@@ -10,6 +10,7 @@ import scipy.special as sp
 import jax.numpy as np
 import math
 from jax import jit
+from jax.ops import index_update
 
 
 ###########################################
@@ -58,7 +59,7 @@ class Crystal:
         self.x = np.arange(-MaxX, MaxX, dx)  # x axis, length 2*MaxX (transverse)
         self.y = np.arange(-MaxY, MaxY, dy)  # y axis, length 2*MaxY  (transverse)
         self.z = np.arange(-MaxZ / 2, MaxZ / 2, dz)  # z axis, length MaxZ (propagation)
-        self.ctype = nz_KTP_Kato  # refractive index function
+        self.ctype = n_KTP_Kato  # refractive index function
         # self.slab = PP_crystal_slab_2D
         self.d = d
         self.poling_period = period
@@ -76,28 +77,58 @@ compute everything to do with a beam.
     -power - peak power of the beam, in W. optional
 '''
 class Beam:
-    def __init__(self, lam, crystal, T, waist=0, power=0,  type='LG', max_mode1=0, max_mode2=0, z=0):
+    def __init__(self, lam, crystal, ax, T, waist=0, power=0,  type='LG', max_mode1=0, max_mode2=0, z=0, n_coeff_pump=None):
         self.lam = lam  # wavelength
-        self.waist = waist  # waist
-        self.n = crystal.ctype(lam * 1e6, T)  # refractive index
+        # self.waist = waist  # waist
+        self.n = crystal.ctype(lam * 1e6, T, ax)  # refractive index
         self.w = 2 * np.pi * c / lam  # frequency
-        self.k = 2 * np.pi * crystal.ctype(lam * 1e6, T) / lam  # wave vector
-        self.b = waist ** 2 * self.k  #
+        self.k = 2 * np.pi * crystal.ctype(lam * 1e6, T, ax) / lam  # wave vector
+        # self.b = waist ** 2 * self.k  #
         self.power = power  # beam power
         self.crystal_dx = crystal.dx
         self.crystal_dy = crystal.dy
         if max_mode1 and max_mode2:
             if type == 'LG':
-                [X, Y] = np.meshgrid(crystal.x, crystal.y)
-                self.hermite_arr, self.hermite_str = LaguerreBank(lam, self.n, self.waist, max_mode1, max_mode2, X, Y, z)
+                if n_coeff_pump is None:
+                    [X, Y] = np.meshgrid(crystal.x, crystal.y)
+                    self.hermite_arr, self.hermite_str = LaguerreBank(lam, self.n, waist, max_mode1, max_mode2, X, Y, z)
+                else:
+                    self.type = type
+                    self.X, self.Y = np.meshgrid(crystal.x, crystal.y)
+                    self.z = z
+                    self.max_mode1 = max_mode1
+                    self.max_mode2 = max_mode2
+                    self.lam = lam
+                    self.n_coeff_pump = n_coeff_pump
+                    self.max_mode_l = int((self.max_mode1 - 1) / 2)
+                    self.max_mode_p = self.max_mode2
+
+                    self.coef = np.zeros(self.n_coeff_pump, dtype=np.float32)
+                    idx = 0
+                    for p in range(self.max_mode_p):
+                        for l in range(-self.max_mode_l, self.max_mode_l + 1):
+                            self.coef = index_update(self.coef, idx, np.sqrt(2 * math.factorial(p) / (np.pi * math.factorial(p + np.abs(l)))))
+                            idx += 1
+
+                    self.hermite_arr, self.hermite_str = LaguerreBank(lam, self.n, waist[0]*1e-5, max_mode1, max_mode2, self.X, self.Y, z)
+                    # self.generate_basis(w0=waist)
             elif type == "HG":
                 [X, Y] = np.meshgrid(crystal.x, crystal.y)
-                self.hermite_arr, self.hermite_str = HermiteBank(lam, self.n, self.waist, max_mode1, max_mode2, X, Y, z)
+                self.hermite_arr, self.hermite_str = HermiteBank(lam, self.n, waist, max_mode1, max_mode2, X, Y, z)
 
-    def create_profile(self, HG_parameters):
-        E_temp = make_beam_from_HG(self.hermite_arr, HG_parameters)
+    def create_profile(self, HG_parameters, w0=None):
+        if w0 is not None:
+            E_temp = 0.
+            idx = 0
+            for p in range(self.max_mode_p):
+                for l in range(-self.max_mode_l, self.max_mode_l + 1):
+                    E_temp += HG_parameters[idx] * Laguerre_gauss(self.lam, self.n, w0[idx]*1e-5, l, p, self.z, self.X, self.Y, self.coef[idx])
+                    idx += 1
+        else:
+            E_temp = make_beam_from_HG(self.hermite_arr, HG_parameters)
         #self.E = E_temp
         self.E = fix_power(E_temp, self.power, self.n, self.crystal_dx, self.crystal_dy)[np.newaxis, :, :]
+
 
 '''
 Class Field:
@@ -192,12 +223,19 @@ def nz_MgCLN_Gayer(lam, T):
     return nz
 
 
-def nz_KTP_Kato(lam, T):
-    nz_no_T_dep = np.sqrt(4.59423+0.06206/(lam*2-0.04763)+110.80672/(lam*2-86.12171))
-    dT = (T-20)
-    dnz = (0.9221/lam*3-2.9220/lam*2+3.6677/lam-0.1897)*1e-5*dT
-    nz = nz_no_T_dep+dnz
-    return nz
+def n_KTP_Kato(lam, T, ax):
+    if ax == "z":
+        nz_no_T_dep = np.sqrt(4.59423+0.06206/(lam**2-0.04763)+110.80672/(lam**2-86.12171))
+        dT = (T-20)
+        dnz = (0.9221/lam**3-2.9220/lam**2+3.6677/lam-0.1897)*1e-5*dT
+        n = nz_no_T_dep+dnz
+    if ax == "y":
+        ny_no_T_dep = np.sqrt(3.45018+0.04341/(lam**2-0.04597)+16.98825/(lam**2-39.43799))
+        dT=(T-20)
+        dny=(0.1997/lam**3-0.4063/lam**2+0.5154/lam+0.5425)*1e-5*dT
+        n=ny_no_T_dep+dny
+    return n
+
 
 '''
 Crystal propagation
@@ -370,7 +408,7 @@ receives:
 '''
 
 
-def Laguerre_gauss(lam, ind_ref, W0, l, p, z, x, y):
+def Laguerre_gauss(lam, ind_ref, W0, l, p, z, x, y, coef=None):
     k = 2 * np.pi * ind_ref / lam
     z0 = np.pi * W0 ** 2 * ind_ref/ lam  # Rayleigh range
     Wz = W0 * np.sqrt(1 + (z / z0) ** 2)  # w(z), the variation of the spot size
@@ -379,7 +417,8 @@ def Laguerre_gauss(lam, ind_ref, W0, l, p, z, x, y):
 
     invR = z / ((z ** 2) + (z0 ** 2))  # radius of curvature
     gouy = (np.abs(l)+2*p+1)*np.arctan(z/z0)
-    coef = np.sqrt(2*math.factorial(p)/(np.pi * math.factorial(p + np.abs(l))))
+    if coef is None:
+        coef = np.sqrt(2*math.factorial(p)/(np.pi * math.factorial(p + np.abs(l))))
 
     U = coef * \
         (W0/Wz)*(r*np.sqrt(2)/Wz)**(np.abs(l)) * \
@@ -442,8 +481,6 @@ def LaguerreBank(lam, ind_ref, W0, max_mode1, max_mode2, x, y, z=0):
             Laguerre_dict[str(p) + str(l)] = Laguerre_gauss(lam, ind_ref, W0, l, p, z, x, y)
 
     return np.array(list(Laguerre_dict.values())), [*Laguerre_dict]
-
-
 
 '''
 make a beam from HG modes

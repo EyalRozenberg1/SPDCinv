@@ -1,9 +1,10 @@
 from __future__ import print_function, division, absolute_import
 
 import os
+
 os.environ["JAX_ENABLE_X64"] = 'True'
 # os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = 'platform'
-os.environ["CUDA_VISIBLE_DEVICES"] = '4,5,6,7'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2,3'
 
 from loss_funcs_parallel_complex import l1_loss, kl_loss, sinkhorn_loss, l2_loss, bhattacharyya_loss
 from spdc_helper_parallel_complex import *
@@ -28,11 +29,11 @@ stats_path = 'stats/'
 seed = 1989
 
 "Learning Hyperparameters"
-loss_type = 'kl_sparse_balanced'  # l1:L1 Norm, kl:Kullback Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
+loss_type = 'kl'  # 'kl_sparse_balanced'  # l1:L1 Norm, kl:Kullback Leibler Divergence, wass: Wasserstein (Sinkhorn) Distance"
 step_size = 0.05
-num_epochs = 75
-N           = 1200  # 100, 500, 1000  - number of total-iterations for learning (dataset size)
-N_inference = 4000  # 100, 500, 1000  - number of total-iterations for inference (dataset size)
+num_epochs = 100
+N = 2000  # 100, 500, 1000  - number of total-iterations for learning (dataset size)
+N_inference = 5000  # 100, 500, 1000  - number of total-iterations for inference (dataset size)
 
 batch_device, num_devices = calc_and_asserts(N)
 
@@ -44,12 +45,16 @@ M = len(PP_crystal.x)  # simulation size
 n_coeff_projections, n_coeff_pump, max_mode1, max_mode2, \
 max_radial_mode_crystal, max_radial_mode_pump, max_angular_mode_pump = projection_crystal_modes()
 
-Pump = Beam(lam_pump, PP_crystal, Temperature, waist_pump, power_pump, projection_type, 2*max_angular_mode_pump + 1,
-            max_radial_mode_pump)  # wavelength, crystal, tmperature,waist,power, maxmode
-Signal = Beam(lam_signal, PP_crystal, Temperature, np.sqrt(2) * Pump.waist, power_signal, projection_type, max_mode1,
+Signal = Beam(lam_signal, PP_crystal, 'y', Temperature, np.sqrt(2) * waist_pump0, power_signal, projection_type,
+              max_mode1,
               max_mode2, z=0)
-Idler = Beam(SFG_idler_wavelength(Pump.lam, Signal.lam), PP_crystal, Temperature, np.sqrt(2) * Pump.waist, power_signal,
+Idler = Beam(SFG_idler_wavelength(lam_pump, lam_signal), PP_crystal, 'z', Temperature, np.sqrt(2) * waist_pump0,
+             power_signal,
              projection_type)
+
+Pump = Beam(lam_pump, PP_crystal, 'y', Temperature, waist_pump, power_pump, projection_type,
+            2 * max_angular_mode_pump + 1,
+            max_radial_mode_pump, n_coeff_pump=n_coeff_pump)  # wavelength, crystal, tmperature,waist,power, maxmode
 
 # phase mismatch
 delta_k = Pump.k - Signal.k - Idler.k
@@ -66,9 +71,9 @@ g1_ii_normalization = G1_Normalization(Idler.w)
 coeffs_real, coeffs_imag = HG_coeff_array(coeffs_str, n_coeff_pump)
 
 # replicate parameters for gpus
-coeffs = pmap(lambda x: np.concatenate((coeffs_real, coeffs_imag)))(np.arange(num_devices))
+coeffs = pmap(lambda x: np.concatenate((coeffs_real, coeffs_imag, waist_pump)))(np.arange(num_devices))
 
-print("--- Pump waist {:.2f}um for Crystal length {}m ---\n".format(waist_pump * 1e6, MaxZ))
+print("--- Pump waist {}um \n--- for Crystal length {}m\n".format(waist_pump * 10, MaxZ))
 print("--- the LG coefficients initiated are: {} ---\n".format(coeffs_real + 1j * coeffs_imag))
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 start_time = time.time()
@@ -81,7 +86,8 @@ if learn_mode:
 
 
 def forward(coeffs, key):
-    coeffs_real, coeffs_imag = coeffs[:n_coeff_pump], coeffs[n_coeff_pump:2 * n_coeff_pump]
+    coeffs_real, coeffs_imag, w0 = coeffs[:n_coeff_pump], coeffs[n_coeff_pump:2 * n_coeff_pump], coeffs[
+                                                                                                 2 * n_coeff_pump:]
     # batch_device iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
     vac_ = random.normal(key, (batch_device, 2, 2, Nx, Ny))
 
@@ -89,8 +95,9 @@ def forward(coeffs, key):
     Siganl_field = Field(Signal, PP_crystal, vac_[:, 0], batch_device)
     Idler_field = Field(Idler, PP_crystal, vac_[:, 1], batch_device)
 
+    # hermite_arr = Pump.generate_basis(w0)
     # current pump structure
-    Pump.create_profile(coeffs_real + 1j * coeffs_imag)
+    Pump.create_profile(coeffs_real + 1j * coeffs_imag, w0=w0)
 
     # Propagate through the crystal:
     crystal_prop(Pump, Siganl_field, Idler_field, PP_crystal)
@@ -119,12 +126,13 @@ def forward(coeffs, key):
 
 
 def loss(coeffs, key, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correlation matrices
-    coeffs_real, coeffs_imag = coeffs[:n_coeff_pump], coeffs[n_coeff_pump:2 * n_coeff_pump]
+    coeffs_real, coeffs_imag, w0 = coeffs[:n_coeff_pump], coeffs[n_coeff_pump:2 * n_coeff_pump], coeffs[
+                                                                                                 2 * n_coeff_pump:]
     normalization = np.sqrt(np.sum(np.abs(coeffs_real) ** 2 + np.abs(coeffs_imag) ** 2))
     coeffs_real = coeffs_real / normalization
     coeffs_imag = coeffs_imag / normalization
 
-    G2 = forward(np.concatenate((coeffs_real, coeffs_imag)), key)
+    G2 = forward(np.concatenate((coeffs_real, coeffs_imag, w0)), key)
     G2 = G2 / np.sum(np.abs(G2))
 
     coeffs_ = coeffs_real + 1j * coeffs_imag
@@ -142,23 +150,13 @@ def loss(coeffs, key, G2t):  # vac_ = vac_s, vac_i, G2t = P and G2 target correl
     if loss_type is 'kl_sparse_balanced':
         return kl_loss(G2, G2t, eps=1e-2) + \
                4 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff_projections ** 2), [30, 40, 50])]) + \
-               1e2 * (
+               1e3 * (
                        np.sum(np.abs(G2[..., 30] - G2[..., 40])) +
                        np.sum(np.abs(G2[..., 30] - G2[..., 50])) +
                        np.sum(np.abs(G2[..., 40] - G2[..., 50]))) + \
                1e-4 * np.sum(np.abs(coeffs_)) + \
                10e3 * np.sum(np.abs(coeffs_[np.array([1, 3, 6, 8, 11, 13])])) + \
                10 * np.sum(np.abs(G2[..., np.array([8, 72, 34, 66, 14, 46, 42, 58, 22, 38])]))
-    if loss_type is 'bhattacharyya_sparse_balanced':
-        return bhattacharyya_loss(G2, G2t) + \
-               150 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff_projections ** 2), [30, 40, 50])]) + \
-               150 * (
-                       np.sum(np.abs(G2[..., 30] - G2[..., 40])) +
-                       np.sum(np.abs(G2[..., 30] - G2[..., 50])) +
-                       np.sum(np.abs(G2[..., 40] - G2[..., 50]))) + \
-               1e-4 * np.sum(np.abs(coeffs_)) + \
-               10 * np.sum(np.abs(G2[..., np.array([8, 72, 34, 66, 14, 46, 42, 58, 22, 38])])) + \
-               10 * np.sum(np.abs(coeffs_[np.array([1, 3, 6, 8, 11, 13])]))
     if loss_type is 'sparse_balanced':
         return 0.5 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff_projections ** 2), [30, 40, 50])]) + \
                0.5 * (
@@ -198,7 +196,7 @@ if learn_mode:
     # loss_func(G2t=G2t[0, 0],
     #           n_coeff_projections=n_coeff_projections,
     #           loss_type=loss_type)
-              # abuse_pump_coeffs_idx=[1, 3, 6, 8, 11, 13])
+    # abuse_pump_coeffs_idx=[1, 3, 6, 8, 11, 13])
 
     # Use optimizers to set optimizer initialization and update functions
     opt_init, opt_update, get_params = optimizers.adam(step_size, b1=0.9, b2=0.999, eps=1e-08)
@@ -225,17 +223,19 @@ if learn_mode:
         print("Epoch {} in {:0.2f} sec".format(epoch, epoch_time))
         ''' print loss value'''
 
-        coeffs_real, coeffs_imag = curr_coeffs[:, :n_coeff_pump], curr_coeffs[:, n_coeff_pump:2 * n_coeff_pump]
+        coeffs_real, coeffs_imag, w0 = curr_coeffs[:, :n_coeff_pump], curr_coeffs[:,
+                                                                      n_coeff_pump:2 * n_coeff_pump], curr_coeffs[:,
+                                                                                                      2 * n_coeff_pump:]
         normalization = np.sqrt(np.sum(np.abs(coeffs_real) ** 2 + np.abs(coeffs_imag) ** 2, 1, keepdims=True))
         coeffs_real = coeffs_real / normalization
         coeffs_imag = coeffs_imag / normalization
-        curr_coeffs = np.concatenate((coeffs_real, coeffs_imag), 1)
+        curr_coeffs = np.concatenate((coeffs_real, coeffs_imag, w0), 1)
 
         coeffs_ = coeffs_real[0] + 1j * coeffs_imag[0]
 
         print("optimized LG coefficients: {}".format(coeffs_))
         print("Norm of LG coefficients: {}".format(np.sum((np.abs(coeffs_)) ** 2)))
-
+        print("optimized waist coefficients {}um\n".format(w0[0] * 10))
         print("training   objective loss:{:0.6f}".format(obj_loss_trn[epoch]))
         print("validation objective loss:{:0.6f}".format(obj_loss_vld[epoch]))
 
@@ -262,6 +262,7 @@ if learn_mode:
         exp_details.write(
             make_beam_from_HG_str(Pump.hermite_str,
                                   coeffs[0, :n_coeff_pump] + 1j * coeffs[0, n_coeff_pump:2 * n_coeff_pump], coeffs_str))
+        exp_details.write('\n\n Pump waist coefficients in um: {}'.format(waist_pump))
         exp_details.close()
 
     plt.plot(obj_loss_trn, 'r', label='training')
@@ -275,11 +276,10 @@ if learn_mode:
     plt.show()
     plt.close()
 
-
 # show last epoch result
 if save_res or save_tgt or show_res:
     print("--- inference mode ---")
-    N          = N_inference  # number of total-iterations (dataset size)
+    N = N_inference  # number of total-iterations (dataset size)
 
     batch_device, num_devices = calc_and_asserts(N)
     ###########################################
@@ -292,6 +292,7 @@ if save_res or save_tgt or show_res:
 
     G2 = pmap(forward, axis_name='device')(coeffs, keys)
     G2 = G2[0]
+    waist_pump = coeffs[0, 2 * n_coeff_pump:] * 10
     coeffs = coeffs[0, :n_coeff_pump] + 1j * coeffs[0, n_coeff_pump:2 * n_coeff_pump]
 
     if save_tgt:
@@ -307,13 +308,13 @@ if save_res or save_tgt or show_res:
         # save normalized version
         np.save(curr_dir + '/' + G2_t_name, G2 / np.sum(np.abs(G2)))
         # save pump coeffs version
-        np.save(curr_dir + '/HG_coeffs', coeffs)
+        np.save(curr_dir + '/' + 'PumpCoeffs_real.npy', coeffs.real)
+        np.save(curr_dir + '/' + 'PumpCoeffs_imag.npy', coeffs.imag)
+        np.save(curr_dir + '/' + 'PumpWaistCoeffs.npy', waist_pump)
 
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
-        if learn_mode:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
-        else:
-            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+        exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+        exp_details.write('\n\n Pump waist coefficients in um: {}'.format(waist_pump))
         exp_details.close()
 
     if show_res or save_res:
@@ -328,10 +329,8 @@ if save_res or save_tgt or show_res:
                 os.makedirs(curr_dir)
 
             exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
-            if learn_mode:
-                exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
-            else:
-                exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+            exp_details.write(make_beam_from_HG_str(Pump.hermite_str, coeffs, coeffs_str))
+            exp_details.write('\n\n Pump waist coefficients in um: {}'.format(waist_pump))
             exp_details.close()
 
         ################
@@ -377,15 +376,15 @@ if save_res or save_tgt or show_res:
         plt.xlabel(r'signal mode i')
         plt.ylabel(r'idle mode j')
         plt.colorbar()
-        plt.xticks(np.arange(n_coeff_projections), np.arange(n_coeff_projections) - int(n_coeff_projections/2))
-        plt.yticks(np.arange(n_coeff_projections), np.arange(n_coeff_projections) - int(n_coeff_projections/2))
+        plt.xticks(np.arange(n_coeff_projections), np.arange(n_coeff_projections) - int(n_coeff_projections / 2))
+        plt.yticks(np.arange(n_coeff_projections), np.arange(n_coeff_projections) - int(n_coeff_projections / 2))
         if save_res:
             plt.savefig(curr_dir + '/' + 'G2')
         if show_res:
             plt.show()
 
-
         from mpl_toolkits.mplot3d import Axes3D
+
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
         xpos, ypos = np.meshgrid(np.arange(n_coeff_projections) - int(n_coeff_projections / 2),
@@ -411,6 +410,7 @@ if save_res or save_tgt or show_res:
         if save_res:
             np.save(curr_dir + '/' + 'PumpCoeffs_real.npy', coeffs.real)
             np.save(curr_dir + '/' + 'PumpCoeffs_imag.npy', coeffs.imag)
+            np.save(curr_dir + '/' + 'PumpWaistCoeffs.npy', waist_pump)
             np.save(curr_dir + '/' + 'G2.npy', G2)
 
 print("\n--- Done: %s seconds ---" % (time.time() - start_time))

@@ -8,3 +8,5 @@ SPDC.py
 __pycache__/
 
 *.npy
+
+*.asv

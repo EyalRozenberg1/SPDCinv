@@ -1,7 +1,7 @@
 from jax import numpy as np
 import jax.random as random
 from jax.ops import index_update
-from spdc_helper_parallel_complex import nz_KTP_Kato
+from spdc_helper_parallel_complex import n_KTP_Kato
 
 "Interaction Initialization"
 # Structure arrays - initialize crystal and structure arrays
@@ -9,8 +9,8 @@ d33 = 16.9e-12  # in meter/Volt.
 dx = 4e-6
 dy = 4e-6
 dz = 10e-6  # 2um works with batch size of 150
-MaxX = 120e-6  # was 180 for 2um #Worked for learning: 4um and 120um
-MaxY = 120e-6
+MaxX = 300e-6  # was 180 for 2um #Worked for learning: 4um and 120um
+MaxY = 300e-6
 MaxZ = 1e-3
 R = 0.1  # distance to far-field screen in meters
 Temperature = 50
@@ -34,8 +34,12 @@ max_radial_mode_pump = 3
 # pump
 lam_pump = 404e-9
 delta = 1
-k = 2 * np.pi * nz_KTP_Kato(lam_pump * 1e6, Temperature) / lam_pump
-waist_pump = 40e-6 # delta * np.sqrt(MaxZ / k)  # according to L_crystal = 2*pi*(w0)^2*n/lambda, we get w_p = sqrt(L/k) -> w_s =sqrt(2).
+k = 2 * np.pi * n_KTP_Kato(lam_pump * 1e6, Temperature, 'y') / lam_pump
+waist_pump0 = 40e-6  # np.sqrt(MaxZ / k) #20e-6 # according to L_crystal = 2*pi*(w0)^2*n/lambda, we get w_p = sqrt(L/k) -> w_s =sqrt(2).
+
+path_for_read = '2021-04-20_N_infer4000_Nx75Ny75_z0.03_steps1000_#devices8_N_learn96_loss_l1_epochs100_complex/'
+
+
 power_pump = 1e-3
 # signal
 lam_signal = 2 * lam_pump
@@ -53,7 +57,16 @@ targert_folder = 'LG_target/'  # for loading targets for training
 
 # Poling learning parameters
 phi_scale = 1  # scale for transverse phase
-r_scale = waist_pump  # was np.srt(2)*waist_pump # scale for radial variance of the poling
+r_scale = waist_pump0  # was np.srt(2)*waist_pump # scale for radial variance of the poling
+
+if coeffs_str == "read":
+    waist_pump = np.load("results/" + path_for_read + "PumpWaistCoeffs.npy")*1e-1
+else:
+    waist_pump = np.array([1, 1, 1, 1, 1, #was 1.5
+                           1, 1, 1, 1, 1,
+                           1, 1, 1, 1, 1], dtype=np.float32) * waist_pump0 * 1e5
+
+
 
 
 def projection_crystal_modes():
@@ -92,11 +105,40 @@ def HG_coeff_array(coeff_str, n_coeff):  # TODO: change HG_coeff_array name to a
         coeffs = index_update(coeffs, 0, 1.0)
     elif (coeff_str == "LG00"):  # index of LG_lp = p(2*max_mode_l+1) + max_mode_l + l
         coeffs_real = np.zeros(n_coeff, dtype=np.float32)
-        coeffs_real = index_update(coeffs_real, max_radial_mode_pump, 1)
 
+        coeffs_real = index_update(coeffs_real, 0*(2*max_angular_mode_pump+1) + max_angular_mode_pump - 2, np.sqrt(2)) #was1
+        coeffs_real = index_update(coeffs_real, 0*(2*max_angular_mode_pump+1) + max_angular_mode_pump - 1, 0) #was1
+        coeffs_real = index_update(coeffs_real, 0*(2*max_angular_mode_pump+1) + max_angular_mode_pump, 1)
+        coeffs_real = index_update(coeffs_real, 0*(2*max_angular_mode_pump+1) + max_angular_mode_pump + 1, 0)
+        coeffs_real = index_update(coeffs_real, 0*(2*max_angular_mode_pump+1) + max_angular_mode_pump + 2, np.sqrt(2)) #was1
+
+        
+        
+        coeffs_real = index_update(coeffs_real, 1*(2*max_angular_mode_pump+1) + max_angular_mode_pump - 2, 0)
+        coeffs_real = index_update(coeffs_real, 1*(2*max_angular_mode_pump+1) + max_angular_mode_pump, 0)
+        coeffs_real = index_update(coeffs_real, 1*(2*max_angular_mode_pump+1) + max_angular_mode_pump + 2, 0)
+
+        coeffs_real = index_update(coeffs_real, 2*(2*max_angular_mode_pump+1) + max_angular_mode_pump - 1, 0) #was-1.3
+        coeffs_real = index_update(coeffs_real, 2*(2*max_angular_mode_pump+1) + max_angular_mode_pump, 0)
+        coeffs_real = index_update(coeffs_real, 2*(2*max_angular_mode_pump+1) + max_angular_mode_pump + 1, 0)
+
+        
+        
         coeffs_imag = np.zeros(n_coeff, dtype=np.float32)
-        coeffs_imag = index_update(coeffs_imag, max_radial_mode_pump, 1)
+        coeffs_imag = index_update(coeffs_imag, max_angular_mode_pump - 4, 0)
+        coeffs_imag = index_update(coeffs_imag, max_angular_mode_pump - 3, 0)
+        coeffs_imag = index_update(coeffs_imag, max_angular_mode_pump - 2, 0)
+        coeffs_imag = index_update(coeffs_imag, max_angular_mode_pump - 1, 0)
+        coeffs_imag = index_update(coeffs_imag, max_angular_mode_pump, 0)
+        coeffs_imag = index_update(coeffs_imag, max_angular_mode_pump + 1, 0)
+        coeffs_imag = index_update(coeffs_imag, max_angular_mode_pump + 2, 0)
+        coeffs_imag = index_update(coeffs_imag, max_angular_mode_pump + 3, 0)
+        coeffs_imag = index_update(coeffs_imag, max_angular_mode_pump + 4, 0)
+    elif (coeff_str == "read"):
+        coeffs_real = np.load('results/' + path_for_read + 'PumpCoeffs_real.npy')
+        coeffs_imag = np.load('results/' + path_for_read + 'PumpCoeffs_imag.npy')
 
+        
     elif (coeff_str == "LG_uniform"):
         coeffs_real = np.ones(n_coeff, dtype=np.float32)
         coeffs_imag = np.ones(n_coeff, dtype=np.float32)
