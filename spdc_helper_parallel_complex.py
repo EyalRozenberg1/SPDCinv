@@ -251,7 +251,7 @@ def PP_crystal_slab_2D(delta_k, z, crystal_profile):
 
 
 class Poling_profile:
-    def __init__(self, r_scale, x, y, length1, length2, series_type):
+    def __init__(self, r_scale, x, y, length1, length2, series_type, lam_signal, ind_ref):
 
         if series_type == 'FT': # Fourier-Taylor
             length1         = int((length1 - 1) / 2)
@@ -271,6 +271,12 @@ class Poling_profile:
                                         np.exp(-1j * l * phi_angle)
                                         for p in range(length2) for l in range(-length1, length1 + 1)])
 
+        elif series_type == 'LG':  # Laguerre-Gauss
+            length1     = int((length1 - 1) / 2)
+            [X,Y]       = np.meshgrid(x, y)
+            self.series = np.array([Laguerre_gauss(lam_signal, ind_ref, r_scale, l, p, 0, X, Y)
+                                    for p in range(length2) for l in range(-length1, length1 + 1)])
+
         elif series_type == 'HG':  # Hermite-Gauss
             [X,Y]       = np.meshgrid(x, y)
             self.series = np.array([np.sqrt(np.sqrt(2 / pi) / (2 ** m * math.factorial(m))) *
@@ -278,6 +284,7 @@ class Poling_profile:
                                     np.exp(-(X ** 2 + Y ** 2)/r_scale ** 2) * HermiteP(m, np.sqrt(2) * Y / r_scale) *
                                     HermiteP(n, np.sqrt(2) * X / r_scale)
                                     for m in range(length2) for n in range(length1)])
+
 
 
     def create_profile(self, poling_parameters):

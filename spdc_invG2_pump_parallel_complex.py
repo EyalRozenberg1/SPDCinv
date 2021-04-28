@@ -64,8 +64,10 @@ crystal_coeffs_real, crystal_coeffs_imag = Crystal_coeff_array(crystal_str, n_co
 # save initial pump coefficients
 Pump.pump_coeffs = pump_coeffs_real + 1j * pump_coeffs_imag
 
-# Settings for Fourier-Taylor / Fourier-Bessel / Hermite-Gauss crystal hologram
-Poling = Poling_profile(r_scale, PP_crystal.x, PP_crystal.y, max_mode1_crystal, max_mode2_crystal, crystal_basis)
+# Settings for Fourier-Taylor / Fourier-Bessel / Laguerre-Gauss / Hermite-Gauss crystal hologram
+Poling = Poling_profile(r_scale, PP_crystal.x, PP_crystal.y,
+                        max_mode1_crystal, max_mode2_crystal,
+                        crystal_basis, Signal.lam, Signal.n)
 
 # replicate parameters for gpus
 coeffs = pmap(lambda x: np.concatenate((pump_coeffs_real, pump_coeffs_imag,
@@ -85,6 +87,8 @@ topic = f'{now.strftime("%_Y-%m-%d")}' \
         f'_Nx{Nx}Ny{Ny}' \
         f'_z{PP_crystal.MaxZ}' \
         f'_steps{len(PP_crystal.z)}' \
+        f'_pump_basis_{pump_basis}' \
+        f'_crystal_basis{crystal_basis}' \
         f'_gpus{num_devices}'
 
 if learn_mode:
