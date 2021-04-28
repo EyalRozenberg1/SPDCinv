@@ -31,7 +31,7 @@ max_mode_y = 1
 pump_basis = 'LG'  # pump construction method
 # LG number of modes for pump basis
 max_angular_mode_pump = 2
-max_radial_mode_pump  = 3
+max_radial_mode_pump  = 5
 
 # HG number of modes for pump basis
 max_mode_x_pump = 5
@@ -40,7 +40,7 @@ max_mode_y_pump = 1
 crystal_basis = 'LG'
 # FT (Fourier-Taylor) / FB (Fourier-Bessel) / LG (Laguerre-Gauss) number of modes for crystal basis
 max_mode_crystal_1 = 2
-max_mode_crystal_2 = 3
+max_mode_crystal_2 = 7
 
 # HG (Hermite-Gauss) number of modes for crystal basis
 max_mode_x_crystal = 5

@@ -710,7 +710,7 @@ def type_waists_from_crystal_str(type, waist_coeffs):
 
     print_str += f'{type} r_scale coefficients string:\n'
     for n in range(len(waist_coeffs)):
-        coeffs_str = ' : {:.4}\n'.format(waist_coeffs[n])
+        coeffs_str = ' : {:.4}um\n'.format(waist_coeffs[n])
         print_str += str(n) + coeffs_str
 
     return print_str
