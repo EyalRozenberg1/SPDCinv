@@ -82,7 +82,7 @@ compute everything to do with a beam.
 class Beam:
     def __init__(self, lam, crystal, ax, T, waist, power=0,
                  type='LG', max_mode1=0, max_mode2=0, z=0, n_coeff_pump=None, learn_pump_coeffs=True, learn_pump_waists=True):
-        
+
         self.lam          = lam
         self.n            = crystal.ctype(lam * 1e6, T, ax)  # refractive index
         self.w            = 2 * np.pi * c / lam  # frequency
@@ -106,7 +106,7 @@ class Beam:
             self.lam          = lam
             self.n_coeff_pump = n_coeff_pump
 
-        
+
         if max_mode1 and max_mode2:
             if self.type == 'LG':
                 if n_coeff_pump is None:
@@ -251,44 +251,144 @@ def PP_crystal_slab_2D(delta_k, z, crystal_profile):
 
 
 class Poling_profile:
-    def __init__(self, r_scale, x, y, length1, length2, series_type, lam_signal, ind_ref):
+    def __init__(self, r_scale, x, y, length1, length2, series_type, lam_signal, ind_ref, learn_crystal_waists=False):
+        self.learn_crystal_waists = learn_crystal_waists
+        self.length2              = length2
+        self.ind_ref              = ind_ref
+        self.lam_signal           = lam_signal
+        self.series_type          = series_type
 
-        if series_type == 'FT': # Fourier-Taylor
-            length1         = int((length1 - 1) / 2)
+        if series_type == 'FT':  # Fourier-Taylor
+            self.length1    = int((length1 - 1) / 2)
             [X,Y]           = np.meshgrid(x, y)
-            phi_angle       = np.arctan2(Y, X)
-            rad             = np.sqrt(X ** 2 + Y ** 2) / r_scale
+            if learn_crystal_waists:
+                self.X    = X
+                self.Y    = Y
+            self.phi_angle  = np.arctan2(Y, X)
+            rad             = np.sqrt(X ** 2 + Y ** 2) / (r_scale[0] * 1e-5)
             self.series     = np.array([rad**p * np.exp(-rad**2) *
-                                        np.exp(-1j * l * phi_angle)
-                                        for p in range(length2) for l in range(-length1, length1 + 1)])
+                                        np.exp(-1j * l * self.phi_angle)
+                                        for p in range(self.length2) for l in range(-self.length1, self.length1 + 1)])
+
+
+
 
         elif series_type == 'FB':  # Fourier-Bessel
-            length1         = int((length1 - 1) / 2)
+            self.length1    = int((length1 - 1) / 2)
             [X,Y]           = np.meshgrid(x, y)
-            phi_angle       = np.arctan2(Y, X)
-            rad             = np.sqrt(X ** 2 + Y ** 2) / r_scale
+            self.phi_angle  = np.arctan2(Y, X)
+            rad             = np.sqrt(X ** 2 + Y ** 2) / (r_scale[0] * 1e-5)
+
             self.series     = np.array([sp.jv(0, sp.jn_zeros(0, p + 1)[-1] * rad) *
-                                        np.exp(-1j * l * phi_angle)
-                                        for p in range(length2) for l in range(-length1, length1 + 1)])
+                                        np.exp(-1j * l * self.phi_angle)
+                                        for p in range(self.length2) for l in range(-self.length1, self.length1 + 1)])
 
         elif series_type == 'LG':  # Laguerre-Gauss
-            length1     = int((length1 - 1) / 2)
-            [X,Y]       = np.meshgrid(x, y)
-            self.series = np.array([Laguerre_gauss(lam_signal, ind_ref, r_scale, l, p, 0, X, Y)
-                                    for p in range(length2) for l in range(-length1, length1 + 1)])
+
+            self.length1 = int((length1 - 1) / 2)
+            [X, Y]       = np.meshgrid(x, y)
+
+            if learn_crystal_waists:
+                self.X    = X
+                self.Y    = Y
+                self.coef = np.zeros(len(r_scale), dtype=np.float32)
+                idx = 0
+                for p in range(self.length2):
+                    for l in range(-self.length1, self.length1 + 1):
+                        self.coef = index_update(
+                            self.coef, idx,
+                            np.sqrt(2 * math.factorial(p) / (np.pi * math.factorial(p + np.abs(l))))
+                        )
+
+                        idx += 1
+
+            self.series  = np.array([Laguerre_gauss(lam_signal, ind_ref, r_scale[0] * 1e-5, l, p, 0, X, Y)
+                                    for p in range(self.length2) for l in range(-self.length1, self.length1 + 1)])
 
         elif series_type == 'HG':  # Hermite-Gauss
+            self.length1 = length1
             [X,Y]       = np.meshgrid(x, y)
+            if learn_crystal_waists:
+                self.X    = X
+                self.Y    = Y
+                self.coef = np.zeros(len(r_scale), dtype=np.float32)
+                idx = 0
+                for m in range(self.length2):
+                    for n in range(self.length1):
+                        self.coef = index_update(
+                            self.coef, idx,
+                            np.sqrt(np.sqrt(2 / pi) / (2 ** m * math.factorial(m))) *
+                            np.sqrt(np.sqrt(2 / pi) / (2 ** n * math.factorial(n)))
+                        )
+
+                        idx += 1
+
+
             self.series = np.array([np.sqrt(np.sqrt(2 / pi) / (2 ** m * math.factorial(m))) *
                                     np.sqrt(np.sqrt(2 / pi) / (2 ** n * math.factorial(n))) *
-                                    np.exp(-(X ** 2 + Y ** 2)/r_scale ** 2) * HermiteP(m, np.sqrt(2) * Y / r_scale) *
+                                    np.exp(-(X ** 2 + Y ** 2) / r_scale ** 2) * HermiteP(m, np.sqrt(2) * Y / r_scale) *
                                     HermiteP(n, np.sqrt(2) * X / r_scale)
-                                    for m in range(length2) for n in range(length1)])
+                                    for m in range(self.length2) for n in range(self.length1)])
 
 
 
-    def create_profile(self, poling_parameters):
-        self.crystal_profile = (poling_parameters[:, None, None] * self.series).sum(0)
+    def create_profile(self, poling_parameters, r_scale):
+        if self.learn_crystal_waists:
+
+            if self.series_type == 'FT':  # Fourier-Taylor
+                crystal_profile = 0.
+                idx = 0
+                for p in range(self.length2):
+                    for l in range(-self.length1, self.length1 + 1):
+                        rad = np.sqrt(self.X ** 2 + self.Y ** 2) / (r_scale[idx] * 1e-5)
+                        crystal_profile += rad ** p * np.exp(-rad ** 2) * np.exp(-1j * l * self.phi_angle)
+                        idx += 1
+
+                self.crystal_profile = crystal_profile
+
+
+            elif self.series_type == 'FB':  # Fourier-Bessel
+                crystal_profile = 0.
+                idx = 0
+                for p in range(self.length2):
+                    for l in range(-self.length1, self.length1 + 1):
+                        rad = np.sqrt(self.X ** 2 + self.Y ** 2) / (r_scale[idx] * 1e-5)
+                        crystal_profile += sp.jv(0, sp.jn_zeros(0, p + 1)[-1] * rad) * \
+                                           np.exp(-1j * l * self.phi_angle)
+                        idx += 1
+
+                self.crystal_profile = crystal_profile
+
+
+            elif self.series_type == 'LG':  # Laguerre-Gauss
+                idx = 0
+                crystal_profile = 0.
+                for p in range(self.length2):
+                    for l in range(-self.length1, self.length1 + 1):
+                        crystal_profile += poling_parameters[idx] * \
+                                           Laguerre_gauss(self.lam_signal, self.ind_ref,
+                                                          r_scale[idx] * 1e-5, l, p, 0, self.X, self.Y, self.coef[idx])
+                        idx += 1
+
+                self.crystal_profile = crystal_profile
+
+
+            elif self.series_type == 'HG':  # Hermite-Gauss
+                idx = 0
+                crystal_profile = 0.
+                for m in range(self.length2):
+                    for n in range(self.length1):
+                        crystal_profile += self.coef[idx] * \
+                                           np.exp(-(self.X ** 2 + self.Y ** 2) / (r_scale[idx] * 1e-5) ** 2) * \
+                                           HermiteP(m, np.sqrt(2) * self.Y / (r_scale[idx] * 1e-5)) * \
+                                           HermiteP(n, np.sqrt(2) * self.X / (r_scale[idx] * 1e-5))
+
+                        idx += 1
+
+                self.crystal_profile = crystal_profile
+
+        else:
+            self.crystal_profile = (poling_parameters[:, None, None] * self.series).sum(0)
 
 
 '''
@@ -595,11 +695,22 @@ def type_waists_from_pump_str(type, pump_basis_str, waist_coeffs):
 
 
 def type_poling_from_crystal_str(type, crystal_coeffs, crystal_str):
-    print_str = f'initial {type} crystal coefficients string: {crystal_str}\n\n'
+    print_str = f'\n\ninitial {type} crystal coefficients string: {crystal_str}\n\n'
 
     print_str += f'{type} coefficients:\n'
     for n in range(len(crystal_coeffs)):
         coeffs_str = ' : {:.4}\n'.format(crystal_coeffs[n])
+        print_str += str(n) + coeffs_str
+
+    return print_str
+
+
+def type_waists_from_crystal_str(type, waist_coeffs):
+    print_str = '\n\n'
+
+    print_str += f'{type} r_scale coefficients string:\n'
+    for n in range(len(waist_coeffs)):
+        coeffs_str = ' : {:.4}\n'.format(waist_coeffs[n])
         print_str += str(n) + coeffs_str
 
     return print_str

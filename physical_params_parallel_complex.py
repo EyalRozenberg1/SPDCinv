@@ -31,16 +31,16 @@ max_mode_y = 1
 pump_basis = 'LG'  # pump construction method
 # LG number of modes for pump basis
 max_angular_mode_pump = 2
-max_radial_mode_pump = 5
+max_radial_mode_pump  = 3
 
 # HG number of modes for pump basis
 max_mode_x_pump = 5
-max_mode_y_pump = 5
+max_mode_y_pump = 1
 
 crystal_basis = 'LG'
 # FT (Fourier-Taylor) / FB (Fourier-Bessel) / LG (Laguerre-Gauss) number of modes for crystal basis
 max_mode_crystal_1 = 2
-max_mode_crystal_2 = 5
+max_mode_crystal_2 = 3
 
 # HG (Hermite-Gauss) number of modes for crystal basis
 max_mode_x_crystal = 5
@@ -48,12 +48,15 @@ max_mode_y_crystal = 5
 
 
 # pump physical parameters
-lam_pump    = 404e-9
-delta       = 1
-k           = 2 * np.pi * n_KTP_Kato(lam_pump * 1e6, Temperature, 'y') / lam_pump
-power_pump  = 1e-3
-waist_pump0 = 40e-6  # np.sqrt(MaxZ / k) # pump waist basis for projection
-# according to L_crystal = 2*pi*(w0)^2*n/lambda, we get w_p = sqrt(L/k) -> w_s =sqrt(2)
+lam_pump        = 404e-9
+delta           = 1
+k               = 2 * np.pi * n_KTP_Kato(lam_pump * 1e6, Temperature, 'y') / lam_pump
+power_pump      = 1e-3
+waist_pump0     = 120e-6  # np.sqrt(MaxZ / k) # pump waists
+waist_pump_proj = np.sqrt(2) * 40e-6  # basis waists for projection
+
+# crystal physical parameter
+r_scale0        = 40e-6  # np.sqrt(MaxZ / k) # pump waists
 
 # Signal & Idler
 lam_signal   = 2 * lam_pump
@@ -64,24 +67,13 @@ power_idler  = 1
 tau = 1e-9  # [nanosec]
 
 # Experiment parameters
-coeffs_str     = "uniform"
-crystal_str    = "uniform"
+coeffs_str     = "random"
+crystal_str    = "random"
 targert_folder = 'LG_target/'  # for loading targets for training
 path_for_read  = '2021-04-20_N_infer4000_Nx75Ny75_z0.03_steps1000_#devices8_N_learn96_loss_l1_epochs100_complex/'
 
 # Poling learning parameters
 phi_scale = 1  # scale for transverse phase
-r_scale = waist_pump0  # was np.srt(2)*waist_pump # scale for radial variance of the poling
-
-
-if coeffs_str == "read":
-    waist_pump = np.load("results/" + path_for_read + "PumpWaistCoeffs.npy")*1e-1
-else:  # initial pump waists w.r.t the waist basis
-    waist_pump = np.array([1, 1, 1, 1, 1,
-                           1, 1, 1, 1, 1,
-                           1, 1, 1, 1, 1], dtype=np.float32) * waist_pump0 * 1e5
-
-
 
 def projection_crystal_modes():
     """
@@ -103,7 +95,7 @@ def projection_crystal_modes():
         max_mode1_pump = max_mode_x_pump
         max_mode2_pump = max_mode_y_pump
 
-    if crystal_basis in ['FT', 'FB']:
+    if crystal_basis in ['FT', 'FB', 'LG']:
         max_mode1_crystal = 2 * max_mode_crystal_1 + 1
         max_mode2_crystal = max_mode_crystal_2
     else:
@@ -122,8 +114,8 @@ def Pump_coeff_array(coeff_str, n_coeff):
     elif (coeff_str == "random"):
         seed_real = 111
         seed_imag = 222
-        coeffs_real = random.normal(random.PRNGKey(seed_real), n_coeff)
-        coeffs_imag = random.normal(random.PRNGKey(seed_imag), n_coeff)
+        coeffs_real = random.normal(random.PRNGKey(seed_real), (n_coeff,))
+        coeffs_imag = random.normal(random.PRNGKey(seed_imag), (n_coeff,))
     elif (coeff_str == "LG00"):
         # index of LG_lp = p(2 * max_angular_mode_pump + 1) + max_angular_mode_pump + l
         coeffs_real = np.zeros(n_coeff, dtype=np.float32)
@@ -153,7 +145,12 @@ def Pump_coeff_array(coeff_str, n_coeff):
     coeffs_real = coeffs_real / normalization
     coeffs_imag = coeffs_imag / normalization
 
-    return coeffs_real, coeffs_imag
+    if coeffs_str == "read":
+        waist_pump = np.load("results/" + path_for_read + "PumpWaistCoeffs.npy") * 1e-1
+    else:  # initial pump waists w.r.t the waist basis
+        waist_pump = np.ones(n_coeff, dtype=np.float32) * waist_pump0 * 1e5
+
+    return coeffs_real, coeffs_imag, waist_pump
 
 
 def Crystal_coeff_array(crystal_str, n_coeff):
@@ -163,8 +160,8 @@ def Crystal_coeff_array(crystal_str, n_coeff):
     elif (crystal_str == "random"):
         seed_real = 1110
         seed_imag = 2220
-        crystal_coeffs_real = random.normal(random.PRNGKey(seed_real), n_coeff)
-        crystal_coeffs_imag = random.normal(random.PRNGKey(seed_imag), n_coeff)
+        crystal_coeffs_real = random.normal(random.PRNGKey(seed_real), (n_coeff,))
+        crystal_coeffs_imag = random.normal(random.PRNGKey(seed_imag), (n_coeff,))
     elif (crystal_str == "FB00"):
         crystal_coeffs_real = np.zeros(n_coeff, dtype=np.float32)
         crystal_coeffs_real = index_update(crystal_coeffs_real,
@@ -196,6 +193,10 @@ def Crystal_coeff_array(crystal_str, n_coeff):
                                            1 * (2 * max_mode_crystal_1 + 1) + max_mode_crystal_1, 0)
         crystal_coeffs_imag = index_update(crystal_coeffs_imag,
                                            1 * (2 * max_mode_crystal_1 + 1) + max_mode_crystal_1 + 2, 0)
+    elif (crystal_str == "HG00"):
+        crystal_coeffs_real = np.zeros(n_coeff, dtype=np.float32)
+        crystal_coeffs_real = index_update(crystal_coeffs_real, 0, 1)
+        crystal_coeffs_imag = np.zeros(n_coeff, dtype=np.float32)
     else:
         assert "ERROR: incompatible crystal coefficients-string"
 
@@ -203,5 +204,7 @@ def Crystal_coeff_array(crystal_str, n_coeff):
     crystal_coeffs_real = crystal_coeffs_real / normalization
     crystal_coeffs_imag = crystal_coeffs_imag / normalization
 
-    return crystal_coeffs_real, crystal_coeffs_imag
+    # scale for radial variance of the poling
+    r_scale = np.ones(n_coeff, dtype=np.float32) * r_scale0 * 1e5
 
+    return crystal_coeffs_real, crystal_coeffs_imag, r_scale

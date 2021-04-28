@@ -30,17 +30,31 @@ n_coeff_pump        = max_mode1_pump * max_mode2_pump  # Total number of pump mo
 n_coeff_crystal     = max_mode1_crystal * max_mode2_crystal  # Total number of crystal modes
 
 
+# Initialize pump and crystal coefficients
+pump_coeffs_real, pump_coeffs_imag, waist_pump    = Pump_coeff_array(coeffs_str, n_coeff_pump)
+crystal_coeffs_real, crystal_coeffs_imag, r_scale = Crystal_coeff_array(crystal_str, n_coeff_crystal)
+
+
 Signal = Beam(lam_signal, PP_crystal, 'y', Temperature,
-              np.sqrt(2) * waist_pump0, power_signal, projection_type,
+              waist_pump_proj, power_signal, projection_type,
               max_mode1, max_mode2, z=0)
 
 Idler  = Beam(SFG_idler_wavelength(lam_pump, lam_signal), PP_crystal, 'z', Temperature,
-              np.sqrt(2) * waist_pump0, power_signal, projection_type)
+              waist_pump_proj, power_signal, projection_type)
 
 Pump = Beam(lam_pump, PP_crystal, 'y', Temperature,
             waist_pump, power_pump, projection_type,
             max_mode1_pump, max_mode2_pump,
             n_coeff_pump=n_coeff_pump, learn_pump_coeffs=learn_pump_coeffs, learn_pump_waists=learn_pump_waists)
+
+
+# save initial pump coefficients
+Pump.pump_coeffs = pump_coeffs_real + 1j * pump_coeffs_imag
+
+# Settings for Fourier-Taylor / Fourier-Bessel / Laguerre-Gauss / Hermite-Gauss crystal hologram
+Poling = Poling_profile(r_scale, PP_crystal.x, PP_crystal.y,
+                        max_mode1_crystal, max_mode2_crystal,
+                        crystal_basis, Signal.lam, Signal.n, learn_crystal_waists)
 
 
 # phase mismatch
@@ -53,31 +67,23 @@ Nx     = len(PP_crystal.x)
 Ny     = len(PP_crystal.y)
 DeltaZ = - MaxZ / 2
 
+
 # normalization factor
 g1_ss_normalization = G1_Normalization(Signal.w)
 g1_ii_normalization = G1_Normalization(Idler.w)
 
-# Initialize pump and crystal coefficients
-pump_coeffs_real, pump_coeffs_imag       = Pump_coeff_array(coeffs_str, n_coeff_pump)
-crystal_coeffs_real, crystal_coeffs_imag = Crystal_coeff_array(crystal_str, n_coeff_crystal)
-
-# save initial pump coefficients
-Pump.pump_coeffs = pump_coeffs_real + 1j * pump_coeffs_imag
-
-# Settings for Fourier-Taylor / Fourier-Bessel / Laguerre-Gauss / Hermite-Gauss crystal hologram
-Poling = Poling_profile(r_scale, PP_crystal.x, PP_crystal.y,
-                        max_mode1_crystal, max_mode2_crystal,
-                        crystal_basis, Signal.lam, Signal.n)
-
 # replicate parameters for gpus
 coeffs = pmap(lambda x: np.concatenate((pump_coeffs_real, pump_coeffs_imag,
                                         crystal_coeffs_real, crystal_coeffs_imag,
-                                        waist_pump)
+                                        waist_pump,
+                                        r_scale)
                                        ))(np.arange(num_devices))
 
 print("--- the pump coefficients initiated are: {} ---\n".format(pump_coeffs_real + 1j * pump_coeffs_imag))
 print("--- the crystal coefficients initiated are: {} ---\n".format(crystal_coeffs_real + 1j * crystal_coeffs_imag))
-print("--- Pump waist {}um \n--- for Crystal length {}m\n".format(waist_pump * 10, MaxZ))
+print("--- Pump waist initiated are {}um\n".format(waist_pump * 10))
+print("--- r_scale is initiated are {}um\n--- for Crystal length {}m\n".format(r_scale * 10, MaxZ))
+
 print("--- initialization time: %s seconds ---" % (time.time() - start_time_initialization))
 
 start_time = time.time()
@@ -94,7 +100,8 @@ topic = f'{now.strftime("%_Y-%m-%d")}' \
 if learn_mode:
     topic += f'_Nlearn{N}' \
              f'_loss_{loss_type}' \
-             f'_epochs{num_epochs}'
+             f'_epochs{num_epochs}' \
+             f'_lr{step_size}'
 
 
 def forward(coeffs, key):
@@ -102,7 +109,8 @@ def forward(coeffs, key):
     pump_coeffs_imag    = coeffs[n_coeff_pump:2 * n_coeff_pump]
     crystal_coeffs_real = coeffs[2 * n_coeff_pump: 2 * n_coeff_pump + n_coeff_crystal]
     crystal_coeffs_imag = coeffs[2 * n_coeff_pump + n_coeff_crystal: 2 * n_coeff_pump + 2 * n_coeff_crystal]
-    w0                  = coeffs[2 * n_coeff_pump + 2 * n_coeff_crystal:]
+    w0                  = coeffs[2 * n_coeff_pump + 2 * n_coeff_crystal: 2 * n_coeff_pump + 2 * n_coeff_crystal + n_coeff_pump]
+    r_scale             = coeffs[2 * n_coeff_pump + 2 * n_coeff_crystal + n_coeff_pump:]
 
     # batch_device iteration, 2-for vac states for signal and idler, 2 - real and imag, Nx X Ny for beam size)
     vac_ = random.normal(key, (batch_device, 2, 2, Nx, Ny))
@@ -115,7 +123,7 @@ def forward(coeffs, key):
     Pump.create_profile(pump_coeffs_real + 1j * pump_coeffs_imag, w0=w0)
 
     # current crystal structure
-    Poling.create_profile(crystal_coeffs_real + 1j * crystal_coeffs_imag)
+    Poling.create_profile(crystal_coeffs_real + 1j * crystal_coeffs_imag, r_scale)
 
     # Propagate through the crystal
     crystal_prop(Pump, Siganl_field, Idler_field, PP_crystal, Poling.crystal_profile)
@@ -146,7 +154,8 @@ def loss(coeffs, key, G2t):
     pump_coeffs_imag    = coeffs[n_coeff_pump:2 * n_coeff_pump]
     crystal_coeffs_real = coeffs[2 * n_coeff_pump: 2 * n_coeff_pump + n_coeff_crystal]
     crystal_coeffs_imag = coeffs[2 * n_coeff_pump + n_coeff_crystal: 2 * n_coeff_pump + 2 * n_coeff_crystal]
-    w0                  = coeffs[2 * n_coeff_pump + 2 * n_coeff_crystal:]
+    w0                  = coeffs[2 * n_coeff_pump + 2 * n_coeff_crystal: 2 * n_coeff_pump + 2 * n_coeff_crystal + n_coeff_pump]
+    r_scale             = coeffs[2 * n_coeff_pump + 2 * n_coeff_crystal + n_coeff_pump:]
 
     normalization = np.sqrt(np.sum(np.abs(pump_coeffs_real) ** 2 + np.abs(pump_coeffs_imag) ** 2))
     pump_coeffs_real = pump_coeffs_real / normalization
@@ -157,7 +166,7 @@ def loss(coeffs, key, G2t):
     crystal_coeffs_imag = crystal_coeffs_imag / normalization
 
     G2 = forward(np.concatenate(
-        (pump_coeffs_real, pump_coeffs_imag, crystal_coeffs_real, crystal_coeffs_imag, w0)), key)
+        (pump_coeffs_real, pump_coeffs_imag, crystal_coeffs_real, crystal_coeffs_imag, w0, r_scale)), key)
 
     G2 = G2 / np.sum(np.abs(G2))
 
@@ -247,7 +256,8 @@ if learn_mode:
         pump_coeffs_imag    = curr_coeffs[:, n_coeff_pump:2 * n_coeff_pump]
         crystal_coeffs_real = curr_coeffs[:, 2 * n_coeff_pump: 2 * n_coeff_pump + n_coeff_crystal]
         crystal_coeffs_imag = curr_coeffs[:, 2 * n_coeff_pump + n_coeff_crystal: 2 * n_coeff_pump + 2 * n_coeff_crystal]
-        w0                  = curr_coeffs[:, 2 * n_coeff_pump + 2 * n_coeff_crystal:]
+        w0                  = curr_coeffs[:, 2 * n_coeff_pump + 2 * n_coeff_crystal: 2 * n_coeff_pump + 2 * n_coeff_crystal + n_coeff_pump]
+        r_scale             = curr_coeffs[:, 2 * n_coeff_pump + 2 * n_coeff_crystal + n_coeff_pump:]
 
 
         normalization = np.sqrt(np.sum(np.abs(pump_coeffs_real) ** 2 +
@@ -261,7 +271,7 @@ if learn_mode:
         crystal_coeffs_imag = crystal_coeffs_imag / normalization
 
         curr_coeffs = np.concatenate(
-            (pump_coeffs_real, pump_coeffs_imag, crystal_coeffs_real, crystal_coeffs_imag, w0), 1)
+            (pump_coeffs_real, pump_coeffs_imag, crystal_coeffs_real, crystal_coeffs_imag, w0, r_scale), 1)
 
         coeffs_         = pump_coeffs_real[0] + 1j * pump_coeffs_imag[0]
         crystal_coeffs_ = crystal_coeffs_real[0] + 1j * crystal_coeffs_imag[0]
@@ -271,17 +281,22 @@ if learn_mode:
         print("optimized crystal coefficients: {}".format(crystal_coeffs_))
         print("Norm of crystal coefficients: {}\n".format(np.sum((np.abs(crystal_coeffs_)) ** 2)))
         print("optimized waist coefficients {}um\n".format(w0[0] * 10))
+        print("optimized r_scale coefficients {}um\n".format(r_scale[0] * 10))
         print("training   objective loss:{:0.6f}".format(obj_loss_trn[epoch]))
         print("validation objective loss:{:0.6f}".format(obj_loss_vld[epoch]))
 
         if best_obj_loss is None or obj_loss_vld[epoch] < best_obj_loss and obj_loss_vld[epoch] == obj_loss_vld[epoch]:
             best_obj_loss = obj_loss_vld[epoch]
             epochs_without_improvement = 0
-            coeffs = curr_coeffs
-            print(f'\n*** best objective loss updated at epoch {epoch}')
+            if keep_best:
+                coeffs = curr_coeffs
+                print(f'\n*** best objective loss updated at epoch {epoch}')
         else:
             epochs_without_improvement += 1
             print(f'\n*** Number of epochs without improvement {epochs_without_improvement}')
+
+        if not keep_best:
+            coeffs = curr_coeffs
 
     print("--- training time: %s seconds ---" % (time.time() - start_time))
 
@@ -305,7 +320,15 @@ if learn_mode:
                 1j * coeffs[0, 2 * n_coeff_pump + n_coeff_crystal: 2 * n_coeff_pump + 2 * n_coeff_crystal], crystal_str))
 
         exp_details.write(
-            type_waists_from_pump_str(Pump.type, Pump.pump_basis_str, coeffs[0, 2 * n_coeff_pump:]*10))
+            type_waists_from_pump_str(Pump.type,
+                                      Pump.pump_basis_str,
+                                      coeffs[0, 2 * n_coeff_pump + 2 * n_coeff_crystal:
+                                                2 * n_coeff_pump + 2 * n_coeff_crystal + n_coeff_pump] * 10))
+
+        exp_details.write(
+            type_waists_from_crystal_str(
+                crystal_basis,
+                coeffs[0, 2 * n_coeff_pump + 2 * n_coeff_crystal + n_coeff_pump:] * 10))
         exp_details.close()
 
     plt.plot(obj_loss_trn, 'r', label='training')
@@ -339,7 +362,8 @@ if save_res or save_tgt or show_res:
     crystal_coeffs = coeffs[0, 2 * n_coeff_pump: 2 * n_coeff_pump + n_coeff_crystal] + 1j * \
                      coeffs[0, 2 * n_coeff_pump + n_coeff_crystal: 2 * n_coeff_pump + 2 * n_coeff_crystal]
 
-    waist_pump     = coeffs[0, 2 * n_coeff_pump + 2 * n_coeff_crystal:] * 10
+    waist_pump     = coeffs[0, 2 * n_coeff_pump + 2 * n_coeff_crystal: 2 * n_coeff_pump + 2 * n_coeff_crystal + n_coeff_pump] * 10
+    r_scale        = coeffs[0, 2 * n_coeff_pump + 2 * n_coeff_crystal + n_coeff_pump:] * 10
     coeffs         = coeffs[0, :n_coeff_pump] + 1j * coeffs[0, n_coeff_pump:2 * n_coeff_pump]
 
     if save_tgt:
@@ -360,11 +384,13 @@ if save_res or save_tgt or show_res:
         np.save(curr_dir + '/' + 'CrystalCoeffs_real.npy', crystal_coeffs.real)
         np.save(curr_dir + '/' + 'CrystalCoeffs_imag.npy', crystal_coeffs.imag)
         np.save(curr_dir + '/' + 'PumpWaistCoeffs.npy', waist_pump)
+        np.save(curr_dir + '/' + 'CrystalWaistCoeffs.npy', r_scale)
 
         exp_details = open(curr_dir + '/' + "exp_details.txt", "w")
         exp_details.write(type_beam_from_pump_str(Pump.type, Pump.pump_basis_str, coeffs, coeffs_str))
         exp_details.write(type_poling_from_crystal_str(crystal_basis, crystal_coeffs, crystal_str))
         exp_details.write(type_waists_from_pump_str(Pump.type, Pump.pump_basis_str, waist_pump))
+        exp_details.write(type_waists_from_crystal_str(crystal_basis, r_scale))
         exp_details.close()
 
     if show_res or save_res:
@@ -382,6 +408,7 @@ if save_res or save_tgt or show_res:
             exp_details.write(type_beam_from_pump_str(Pump.type, Pump.pump_basis_str, coeffs, coeffs_str))
             exp_details.write(type_poling_from_crystal_str(crystal_basis, crystal_coeffs, crystal_str))
             exp_details.write(type_waists_from_pump_str(Pump.type, Pump.pump_basis_str, waist_pump))
+            exp_details.write(type_waists_from_crystal_str(crystal_basis, r_scale))
             exp_details.close()
 
         ################
@@ -464,6 +491,7 @@ if save_res or save_tgt or show_res:
             np.save(curr_dir + '/' + 'CrystalCoeffs_real.npy', crystal_coeffs.real)
             np.save(curr_dir + '/' + 'CrystalCoeffs_imag.npy', crystal_coeffs.imag)
             np.save(curr_dir + '/' + 'PumpWaistCoeffs.npy', waist_pump)
+            np.save(curr_dir + '/' + 'CrystalWaistCoeffs.npy', r_scale)
             np.save(curr_dir + '/' + 'G2.npy', G2)
 
 print("\n--- Done: %s seconds ---" % (time.time() - start_time))
