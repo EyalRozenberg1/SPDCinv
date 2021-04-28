@@ -19,7 +19,7 @@ start_time_initialization = time.time()
 
 "Interaction Initialization"
 # Structure arrays - initialize crystal and structure arrays
-PP_crystal = Crystal(dx, dy, dz, MaxX, MaxY, MaxZ, d33, learn_crystal=learn_crystal)
+PP_crystal = Crystal(dx, dy, dz, MaxX, MaxY, MaxZ, d33, learn_crystal_coeffs=learn_crystal_coeffs)
 
 max_mode1, max_mode2,\
 max_mode1_pump, max_mode2_pump,\
@@ -39,7 +39,8 @@ Idler  = Beam(SFG_idler_wavelength(lam_pump, lam_signal), PP_crystal, 'z', Tempe
 
 Pump = Beam(lam_pump, PP_crystal, 'y', Temperature,
             waist_pump, power_pump, projection_type,
-            max_mode1_pump, max_mode2_pump, n_coeff_pump=n_coeff_pump)
+            max_mode1_pump, max_mode2_pump,
+            n_coeff_pump=n_coeff_pump, learn_pump_coeffs=learn_pump_coeffs, learn_pump_waists=learn_pump_waists)
 
 
 # phase mismatch
@@ -59,6 +60,9 @@ g1_ii_normalization = G1_Normalization(Idler.w)
 # Initialize pump and crystal coefficients
 pump_coeffs_real, pump_coeffs_imag       = Pump_coeff_array(coeffs_str, n_coeff_pump)
 crystal_coeffs_real, crystal_coeffs_imag = Crystal_coeff_array(crystal_str, n_coeff_crystal)
+
+# save initial pump coefficients
+Pump.pump_coeffs = pump_coeffs_real + 1j * pump_coeffs_imag
 
 # Settings for Fourier-Taylor / Fourier-Bessel / Hermite-Gauss crystal hologram
 Poling = Poling_profile(r_scale, PP_crystal.x, PP_crystal.y, max_mode1_crystal, max_mode2_crystal, crystal_basis)
@@ -176,7 +180,7 @@ def loss(coeffs, key, G2t):
                10e3 * np.sum(np.abs(coeffs_[np.array([1, 3, 6, 8, 11, 13])])) + \
                10 * np.sum(np.abs(G2[..., np.array([8, 72, 34, 66, 14, 46, 42, 58, 22, 38])]))
     if loss_type is 'sparse_balanced':
-        return 0.5 * l1_loss(G2[..., onp.delete(onp.arange(n_coeff_projections ** 2), [30, 40, 50])]) + \
+        return 1. * l1_loss(G2[..., onp.delete(onp.arange(n_coeff_projections ** 2), [30, 40, 50])]) + \
                0.5 * (
                        np.sum(np.abs(G2[..., 30] - G2[..., 40])) +
                        np.sum(np.abs(G2[..., 30] - G2[..., 50])) +

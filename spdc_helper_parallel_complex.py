@@ -49,7 +49,7 @@ initialize all strcutres of crystal
     - poliong period (optional): the poling period of the crystal
 '''
 class Crystal:
-    def __init__(self, dx, dy, dz, MaxX, MaxY, MaxZ, d, period=0, learn_crystal=False):
+    def __init__(self, dx, dy, dz, MaxX, MaxY, MaxZ, d, period=0, learn_crystal_coeffs=False):
         self.dz   = dz  # resolution of z axis
         self.dx   = dx  # resolution of x axis
         self.dy   = dy  # resolution of y axis
@@ -60,7 +60,7 @@ class Crystal:
         self.y    = np.arange(-MaxY, MaxY, dy)  # y axis, length 2*MaxY  (transverse)
         self.z    = np.arange(-MaxZ / 2, MaxZ / 2, dz)  # z axis, length MaxZ (propagation)
         self.ctype = n_KTP_Kato  # refractive index function
-        if learn_crystal:
+        if learn_crystal_coeffs:
             self.slab = PP_crystal_slab_2D
         else:
             self.slab = PP_crystal_slab
@@ -81,16 +81,22 @@ compute everything to do with a beam.
 '''
 class Beam:
     def __init__(self, lam, crystal, ax, T, waist, power=0,
-                 type='LG', max_mode1=0, max_mode2=0, z=0, n_coeff_pump=None):
+                 type='LG', max_mode1=0, max_mode2=0, z=0, n_coeff_pump=None, learn_pump_coeffs=True, learn_pump_waists=True):
         
-        self.lam        = lam
-        self.n          = crystal.ctype(lam * 1e6, T, ax)  # refractive index
-        self.w          = 2 * np.pi * c / lam  # frequency
-        self.k          = 2 * np.pi * crystal.ctype(lam * 1e6, T, ax) / lam  # wave vector
-        self.power      = power  # beam power
-        self.crystal_dx = crystal.dx
-        self.crystal_dy = crystal.dy
-        self.type       = type
+        self.lam          = lam
+        self.n            = crystal.ctype(lam * 1e6, T, ax)  # refractive index
+        self.w            = 2 * np.pi * c / lam  # frequency
+        self.k            = 2 * np.pi * crystal.ctype(lam * 1e6, T, ax) / lam  # wave vector
+        self.power        = power  # beam power
+        self.crystal_dx   = crystal.dx
+        self.crystal_dy   = crystal.dy
+        self.type         = type
+
+        self.learn_pump_coeffs   = learn_pump_coeffs
+        self.pump_coeffs         = None
+        self.learn_pump_waists   = learn_pump_waists
+        self.waist               = waist
+
 
         if n_coeff_pump is not None:
             self.X, self.Y    = np.meshgrid(crystal.x, crystal.y)
@@ -123,7 +129,7 @@ class Beam:
 
                             idx += 1
 
-                    self.pump_basis_arr, self.pump_basis_str = LaguerreBank(lam, self.n, waist[0]*1e-5,
+                    self.pump_basis_arr, self.pump_basis_str = LaguerreBank(lam, self.n, waist[0] * 1e-5,
                                                                             max_mode1, max_mode2, self.X, self.Y, z)
 
             elif self.type == "HG":
@@ -156,22 +162,53 @@ class Beam:
         if w0 is not None:
             E_temp = 0.
             idx    = 0
-
             if self.type == 'LG':
                 for p in range(self.max_mode_p):
                     for l in range(-self.max_mode_l, self.max_mode_l + 1):
-                        E_temp += pump_coeffs[idx] * Laguerre_gauss(self.lam, self.n, w0[idx]*1e-5,
-                                                                    l, p, self.z, self.X, self.Y, self.coef[idx])
+                        if self.learn_pump_waists:
+                            if self.learn_pump_coeffs:
+                                E_temp += pump_coeffs[idx] * Laguerre_gauss(self.lam, self.n, w0[idx] * 1e-5,
+                                                                            l, p, self.z, self.X, self.Y, self.coef[idx])
+                            else:
+                                E_temp += self.pump_coeffs[idx] * Laguerre_gauss(self.lam, self.n, w0[idx] * 1e-5,
+                                                                            l, p, self.z, self.X, self.Y,
+                                                                            self.coef[idx])
+                        else:
+                            if self.learn_pump_coeffs:
+                                E_temp += pump_coeffs[idx] * Laguerre_gauss(self.lam, self.n, self.waist[idx] * 1e-5,
+                                                                            l, p, self.z, self.X, self.Y, self.coef[idx])
+                            else:
+                                E_temp += self.pump_coeffs[idx] * Laguerre_gauss(self.lam, self.n, self.waist[idx] * 1e-5,
+                                                                            l, p, self.z, self.X, self.Y,
+                                                                            self.coef[idx])
                         idx += 1
 
             elif self.type == "HG":
                 for ny in range(self.max_mode_y):
                     for nx in range(self.max_mode_x):
-                        E_temp += pump_coeffs[idx] * Hermite_gauss(self.lam, self.n, w0[idx]*1e-5,
-                                                                   nx, ny, self.z, self.X, self.Y, self.coef[idx])
+                        if self.learn_pump_waists:
+                            if self.learn_pump_coeffs:
+                                E_temp += pump_coeffs[idx] * Hermite_gauss(self.lam, self.n, w0[idx]*1e-5,
+                                                                           nx, ny, self.z, self.X, self.Y, self.coef[idx])
+                            else:
+                                E_temp += self.pump_coeffs[idx] * Hermite_gauss(self.lam, self.n, w0[idx] * 1e-5,
+                                                                           nx, ny, self.z, self.X, self.Y,
+                                                                           self.coef[idx])
+                        else:
+                            if self.learn_pump_coeffs:
+                                E_temp += pump_coeffs[idx] * Hermite_gauss(self.lam, self.n, self.waist[idx] * 1e-5,
+                                                                           nx, ny, self.z, self.X, self.Y, self.coef[idx])
+                            else:
+                                E_temp += self.pump_coeffs[idx] * Hermite_gauss(self.lam, self.n, self.waist[idx] * 1e-5,
+                                                                           nx, ny, self.z, self.X, self.Y,
+                                                                           self.coef[idx])
+
                         idx += 1
         else:
-            E_temp = make_beam_from_coeffs(self.pump_basis_arr, pump_coeffs)
+            if self.learn_pump_coeffs:
+                E_temp = make_beam_from_coeffs(self.pump_basis_arr, pump_coeffs)
+            else:
+                E_temp = make_beam_from_coeffs(self.pump_basis_arr, self.pump_coeffs)
 
         self.E = fix_power(E_temp, self.power, self.n, self.crystal_dx, self.crystal_dy)[np.newaxis, :, :]
 
