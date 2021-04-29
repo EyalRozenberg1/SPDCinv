@@ -1,13 +1,10 @@
 import os
 
-os.environ["JAX_ENABLE_X64"] = 'True'
-os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2,3'
-
+from learning_params_parallel_complex import *
 from loss_funcs_parallel_complex import l1_loss, kl_loss, l2_loss, bhattacharyya_loss
 from spdc_helper_parallel_complex import *
 from spdc_funcs_parallel_complex import *
 from physical_params_parallel_complex import *
-from learning_params_parallel_complex import *
 
 batch_device, num_devices = calc_and_asserts(N)
 
@@ -101,7 +98,8 @@ if learn_mode:
     topic += f'_Nlearn{N}' \
              f'_loss_{loss_type}' \
              f'_epochs{num_epochs}' \
-             f'_lr{step_size}'
+             f'_lr{step_size}' \
+             f'_optimizer_{optimizer}'
 
 
 def forward(coeffs, key):
@@ -226,8 +224,33 @@ if learn_mode:
     # load target G2
     G2t = pmap(lambda x: np.load(Pt_path + targert_folder + 'G2.npy'))(np.arange(num_devices))
 
+    if exp_decay_lr:
+        step_schedule = optimizers.exponential_decay(step_size=step_size, decay_steps=decay_steps,
+                                                     decay_rate=decay_rate)
+    else:
+        step_schedule = step_size
+
     # Use optimizers to set optimizer initialization and update functions
-    opt_init, opt_update, get_params = optimizers.adam(step_size, b1=0.9, b2=0.999, eps=1e-08)
+    if optimizer == 'adam':
+        opt_init, opt_update, get_params = optimizers.adam(step_schedule, b1=0.9, b2=0.999, eps=1e-08)
+    elif optimizer == 'sgd':
+        opt_init, opt_update, get_params = optimizers.sgd(step_schedule)
+    elif optimizer == 'adagrad':
+        opt_init, opt_update, get_params = optimizers.adagrad(step_schedule)
+    elif optimizer == 'adamax':
+        opt_init, opt_update, get_params = optimizers.adamax(step_schedule, b1=0.9, b2=0.999, eps=1e-08)
+    elif optimizer == 'momentum':
+        opt_init, opt_update, get_params = optimizers.momentum(step_schedule, mass=1e-02)
+    elif optimizer == 'nesterov':
+        opt_init, opt_update, get_params = optimizers.nesterov(step_schedule, mass=1e-02)
+    elif optimizer == 'rmsprop':
+        opt_init, opt_update, get_params = optimizers.rmsprop(step_schedule, gamma=0.9, eps=1e-08)
+    elif optimizer == 'rmsprop_momentum':
+        opt_init, opt_update, get_params = optimizers.rmsprop_momentum(step_schedule, gamma=0.9, eps=1e-08,
+                                                                       momentum=0.9)
+    else:
+        raise Exception('Nonstandard Optimizer choice')
+
     opt_state = opt_init(coeffs)
 
     obj_loss_trn, obj_loss_vld, best_obj_loss = [], [], None
@@ -333,9 +356,10 @@ if learn_mode:
 
     plt.plot(obj_loss_trn, 'r', label='training')
     plt.plot(obj_loss_vld, 'b', label='validation')
-    plt.title('loss(G2), loss type:{}'.format(loss_type))
+    plt.title(f'{loss_type}(G2), optimizer:{optimizer}')
     plt.ylabel('objective loss')
     plt.xlabel('#epoch')
+    plt.ylim(0.2, 1)
     plt.legend()
     if save_stats:
         plt.savefig(curr_dir + '/objective_loss')
