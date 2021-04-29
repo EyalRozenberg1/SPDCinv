@@ -316,7 +316,8 @@ if learn_mode:
                 print(f'\n*** best objective loss updated at epoch {epoch}')
         else:
             epochs_without_improvement += 1
-            print(f'\n*** Number of epochs without improvement {epochs_without_improvement}')
+            print(f'\n*** Number of epochs without improvement {epochs_without_improvement}, '
+                  f'best objective loss {best_obj_loss}')
 
         if not keep_best:
             coeffs = curr_coeffs
