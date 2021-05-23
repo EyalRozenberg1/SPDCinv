@@ -1,7 +1,7 @@
 from jax import numpy as np
 import jax.random as random
 from jax.ops import index_update
-from spdc_helper_parallel_complex import n_KTP_Kato
+from utils import n_KTP_Kato
 
 "Interaction Initialization"
 # Structure arrays - initialize crystal and structure arrays

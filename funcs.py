@@ -1,6 +1,6 @@
 import jax.numpy as np
 from jax import jit
-from spdc_helper_parallel_complex import kron, kron1
+from utils import kron, kron1
 from jax.lib import xla_bridge
 
 
