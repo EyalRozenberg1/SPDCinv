@@ -12,18 +12,18 @@ learn_crystal_waists = True  # learn crystal waists
 
 
 "Learning Hyperparameters"
-loss_type   = 'sparse_balanced'  # 'kl_sparse_balanced'  # l1:L1 Norm, kl:Kullback Leibler Divergence
+loss_type   = 'l1'  # 'kl_sparse_balanced'  # l1:L1 Norm, kl:Kullback Leibler Divergence
 num_epochs  = 200
 N           = 1000  # 100, 500, 1000  - number of total-iterations for learning (dataset size)
 N_inference = 4000  # 100, 500, 1000  - number of total-iterations for inference (dataset size)
 
 
 # Optimization methods
-optimizer      = 'rmsprop_momentum'  # 'adam', 'sgd', 'adagrad', 'adamax', 'momentum', 'nesterov', 'rmsprop', 'rmsprop_momentum'
+optimizer      = 'adam'  # 'adam', 'sgd', 'adagrad', 'adamax', 'momentum', 'nesterov', 'rmsprop', 'rmsprop_momentum'
 keep_best      = True
 
 exp_decay_lr   = True
-step_size      = 0.005
+step_size      = 0.05
 decay_steps    = 50
 decay_rate     = 0.5
 

@@ -240,14 +240,27 @@ class Field:
 Periodically poled crystal slab
 create the crystal slab at point z in the crystal, for poling period 2pi/delta_k
 '''
-def PP_crystal_slab(delta_k, z, crystal_profile):
+def PP_crystal_slab(delta_k, z, crystal_profile, infer = 0):
     return np.sign(np.cos(np.abs(delta_k) * z))
 
 
-def PP_crystal_slab_2D(delta_k, z, crystal_profile):
+def PP_crystal_slab_2D(delta_k, z, crystal_profile, infer=0):
     magnitude = np.abs(crystal_profile)
     phase = np.angle(crystal_profile)
-    return (2 / np.pi) * np.exp(1j * (np.abs(delta_k) * z)) * magnitude * np.exp(1j * phase)
+    if infer:
+        MaxOrderFourier = 20
+        poling = 0
+        magnitude = magnitude/magnitude.max()
+        DutyCycle = np.arcsin(magnitude)/np.pi
+        for m in range(MaxOrderFourier):
+            if m == 0:
+                poling = poling + 2*DutyCycle - 1
+            else:
+                poling = poling + (2 / (m * np.pi)) * np.sin(m * pi * DutyCycle) * 2 * np.cos(m * phase + m * np.abs(delta_k) * z)
+        #print("Crystal built with {} Fourier series orders \n".format(MaxOrderFourier))
+        return poling
+    else:
+        return (2 / np.pi) * np.exp(1j * (np.abs(delta_k) * z)) * magnitude * np.exp(1j * phase)
 
 
 class Poling_profile:
@@ -427,7 +440,7 @@ def n_KTP_Kato(lam, T, ax):
 Crystal propagation
 propagate through crystal using split step Fourier for 4 fields: e_out and E_vac, signal and idler.
 '''
-def crystal_prop(Pump, Siganl_field, Idler_field, crystal, Poling_crystal_profile=None):
+def crystal_prop(Pump, Siganl_field, Idler_field, crystal, Poling_crystal_profile=None, infer = 0):
     # propagate
     x  = crystal.x
     y  = crystal.y
@@ -438,7 +451,7 @@ def crystal_prop(Pump, Siganl_field, Idler_field, crystal, Poling_crystal_profil
         E_pump = propagate(Pump.E, x, y, Pump.k, z) * np.exp(-1j * Pump.k * z)
 
         # crystal slab:
-        PP = crystal.slab(crystal.poling_period, z, Poling_crystal_profile)
+        PP = crystal.slab(crystal.poling_period, z, Poling_crystal_profile, infer)
 
         # coupled wave equations - split step
         # signal:

@@ -48,15 +48,16 @@ max_mode_y_crystal = 5
 
 
 # pump physical parameters
-lam_pump        = 404e-9
+lam_pump        = 405e-9
 delta           = 1
 k               = 2 * np.pi * n_KTP_Kato(lam_pump * 1e6, Temperature, 'y') / lam_pump
 power_pump      = 1e-3
-waist_pump0     = 120e-6  # np.sqrt(MaxZ / k) # pump waists
-waist_pump_proj = np.sqrt(2) * 40e-6  # basis waists for projection
+waist_pump0     = np.sqrt(MaxZ / k)  # pump waists #40e-6
+waist_pump_proj = np.sqrt(2)*waist_pump0  # 1/np.sqrt(1/r_scale0**2 + 1/waist_pump0**2)
 
 # crystal physical parameter
 r_scale0        = 40e-6  # np.sqrt(MaxZ / k) # pump waists
+
 
 # Signal & Idler
 lam_signal   = 2 * lam_pump

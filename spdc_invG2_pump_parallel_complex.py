@@ -90,8 +90,8 @@ topic = f'{now.strftime("%_Y-%m-%d")}' \
         f'_Nx{Nx}Ny{Ny}' \
         f'_z{PP_crystal.MaxZ}' \
         f'_steps{len(PP_crystal.z)}' \
-        f'_pump_basis_{pump_basis}' \
-        f'_crystal_basis{crystal_basis}' \
+        f'_pump_basis_{pump_basis}{max_mode1_pump}{max_mode2_pump}' \
+        f'_crystal_basis{crystal_basis}{max_mode1_crystal}{max_mode2_crystal}' \
         f'_gpus{num_devices}'
 
 if learn_mode:
@@ -124,7 +124,7 @@ def forward(coeffs, key):
     Poling.create_profile(crystal_coeffs_real + 1j * crystal_coeffs_imag, r_scale)
 
     # Propagate through the crystal
-    crystal_prop(Pump, Siganl_field, Idler_field, PP_crystal, Poling.crystal_profile)
+    crystal_prop(Pump, Siganl_field, Idler_field, PP_crystal, Poling.crystal_profile, not(learn_mode))
 
     # Propagate generated fields back to the middle of the crystal
     E_s_out_prop = propagate(Siganl_field.E_out, PP_crystal.x, PP_crystal.y, Siganl_field.k, DeltaZ) * np.exp(
@@ -361,6 +361,9 @@ if learn_mode:
     plt.ylabel('objective loss')
     plt.xlabel('#epoch')
     plt.ylim(0.2, 1)
+    plt.axhline(y=best_obj_loss, color='gray', linestyle='--')
+    plt.text(2, best_obj_loss, f'best objective loss = {best_obj_loss}', rotation=0, horizontalalignment='left',
+             verticalalignment='top', multialignment='center')
     plt.legend()
     if save_stats:
         plt.savefig(curr_dir + '/objective_loss')
