@@ -1,10 +1,10 @@
 import os
 
-from learning_params_parallel_complex import *
-from loss_funcs_parallel_complex import l1_loss, kl_loss, l2_loss, bhattacharyya_loss
-from spdc_helper_parallel_complex import *
-from spdc_funcs_parallel_complex import *
-from physical_params_parallel_complex import *
+from learning_params import *
+from loss import l1_loss, kl_loss, l2_loss, bhattacharyya_loss
+from utils import *
+from funcs import *
+from physical_params import *
 
 batch_device, num_devices = calc_and_asserts(N)
 

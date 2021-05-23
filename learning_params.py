@@ -1,7 +1,7 @@
 import os
 
 os.environ["JAX_ENABLE_X64"]       = 'True'
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1'
 
 
 learn_mode           = True  # learn/infer
@@ -13,7 +13,7 @@ learn_crystal_waists = True  # learn crystal waists
 
 "Learning Hyperparameters"
 loss_type   = 'l1'  # 'kl_sparse_balanced'  # l1:L1 Norm, kl:Kullback Leibler Divergence
-num_epochs  = 200
+num_epochs  = 20
 N           = 1000  # 100, 500, 1000  - number of total-iterations for learning (dataset size)
 N_inference = 4000  # 100, 500, 1000  - number of total-iterations for inference (dataset size)
 
