@@ -126,28 +126,27 @@ class SPDCmodel(ABC):
         -------
         """
 
-        signal_beam_decompose = decompose(signal_out,
-                                          self.projection.basis_arr
-                                          ).reshape(
-            self.N_device, self.projection.projection_n_modes1, self.projection.projection_n_modes2)
-
-        idler_beam_decompose  = decompose(idler_out,
-                                          self.projection.basis_arr
-                                          ).reshape(
-            self.N_device, self.projection.projection_n_modes1, self.projection.projection_n_modes2)
-
-        idler_vac_decompose   = decompose(idler_vac,
-                                          self.projection.basis_arr
-                                          ).reshape(
-            self.N_device, self.projection.projection_n_modes1, self.projection.projection_n_modes2)
-
-        # say there are no higher modes by normalizing the power
-        signal_beam_decompose = fix_power(signal_beam_decompose, signal_out)
-        idler_beam_decompose  = fix_power(idler_beam_decompose, idler_out)
-        idler_vac_decompose   = fix_power(idler_vac_decompose, idler_vac)
-
         coincidence_rate, density_matrix = None, None
         if self.coincidence_rate_observable:
+            signal_beam_decompose = decompose(signal_out,
+                                              self.projection.basis_arr
+                                              ).reshape(
+                self.N_device, self.projection.projection_n_modes1, self.projection.projection_n_modes2)
+
+            idler_beam_decompose = decompose(idler_out,
+                                             self.projection.basis_arr
+                                             ).reshape(
+                self.N_device, self.projection.projection_n_modes1, self.projection.projection_n_modes2)
+
+            idler_vac_decompose = decompose(idler_vac,
+                                            self.projection.basis_arr
+                                            ).reshape(
+                self.N_device, self.projection.projection_n_modes1, self.projection.projection_n_modes2)
+
+            # say there are no higher modes by normalizing the power
+            signal_beam_decompose = fix_power(signal_beam_decompose, signal_out)
+            idler_beam_decompose = fix_power(idler_beam_decompose, idler_out)
+            idler_vac_decompose = fix_power(idler_vac_decompose, idler_vac)
 
             coincidence_rate = coincidence_rate_calc(
                 signal_beam_decompose,

@@ -25,7 +25,7 @@ class Interaction(ABC):
             initial_pump_coefficient: str = 'uniform',
             custom_pump_coefficient: Dict[str, Dict[int, int]] = None,
             pump_coefficient_path: str = None,
-            initial_pump_waist: str = 'waist_pump',
+            initial_pump_waist: str = 'waist_pump0',
             pump_waists_path: str = None,
             crystal_basis: str = 'LG',
             crystal_max_mode1: int = 5,
@@ -86,8 +86,10 @@ class Interaction(ABC):
         lam_pump: Pump wavelength
         crystal_str: Crystal type. Can be: KTP or MgCLN
         power_pump: Pump power [watt]
-        waist_pump0: waists of the pump basis functions
-        r_scale0: effective waists of the crystal basis functions
+        waist_pump0: waists of the pump basis functions.
+                     -- If None, waist_pump0 = sqrt(maxZ / self.pump_k)
+        r_scale0: effective waists of the crystal basis functions.
+                  -- If None, r_scale0 = waist_pump0
         dx: transverse resolution in x [m]
         dy: transverse resolution in y [m]
         dz: longitudinal resolution in z [m]
@@ -227,9 +229,13 @@ class Interaction(ABC):
             coeffs_real = np.zeros(self.pump_n_modes, dtype=np.float32)
             coeffs_imag = np.zeros(self.pump_n_modes, dtype=np.float32)
             for index, coeff in self.custom_pump_coefficient[REAL].items():
+                assert type(index) is int, f'index {index} must be int type'
+                assert type(coeff) is float, f'coeff {coeff} must be float type'
                 coeffs_real = index_update(coeffs_real, index, coeff)
 
             for index, coeff in self.custom_pump_coefficient[IMAG].items():
+                assert type(index) is int, f'index {index} must be int type'
+                assert type(coeff) is float, f'coeff {coeff} must be float type'
                 coeffs_real = coeffs_imag(coeffs_real, index, coeff)
 
 
@@ -251,7 +257,7 @@ class Interaction(ABC):
 
 
     def initial_pump_waists(self):
-        if self.initial_pump_waist == "waist_pump":
+        if self.initial_pump_waist == "waist_pump0":
             waist_pump = np.ones(self.pump_n_modes, dtype=np.float32) * self.waist_pump0 * 1e5
 
         elif self.initial_pump_waist == "load":
@@ -294,9 +300,13 @@ class Interaction(ABC):
             coeffs_real = np.zeros(self.crystal_n_modes, dtype=np.float32)
             coeffs_imag = np.zeros(self.crystal_n_modes, dtype=np.float32)
             for index, coeff in self.custom_crystal_coefficient[REAL].items():
+                assert type(index) is int, f'index {index} must be int type'
+                assert type(coeff) is float, f'coeff {coeff} must be float type'
                 coeffs_real = index_update(coeffs_real, index, coeff)
 
             for index, coeff in self.custom_crystal_coefficient[IMAG].items():
+                assert type(index) is int, f'index {index} must be int type'
+                assert type(coeff) is float, f'coeff {coeff} must be float type'
                 coeffs_real = coeffs_imag(coeffs_real, index, coeff)
 
         elif self.initial_crystal_coefficient == "load":
