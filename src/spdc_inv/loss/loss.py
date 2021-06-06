@@ -5,25 +5,26 @@ from typing import Tuple, Sequence, Dict, Any, Union, Optional, List
 import jax.numpy as np
 import numpy as onp
 import itertools
+import os
+from spdc_inv import DATA_DIR
 
 
 class Loss(ABC):
     def __init__(
             self,
             observable_as_target: Tuple[Dict[Any, bool], ...],
-            target: str,
-            projection_n_modes: int,
+            target: str = None,
             loss_arr: Union[Dict[Any, Optional[Tuple[str, str]]],
-                            Tuple[Dict[Any, Optional[Tuple[str, str]]], ...]] = ('l1', 'l2'),
+                            Tuple[Dict[Any, Optional[Tuple[str, str]]], ...]] = None,
             loss_weights: Union[Dict[Any, Optional[Tuple[float, float]]],
-                                Tuple[Dict[Any, Optional[Tuple[float, float]]], ...]] = (1., .5),
+                                Tuple[Dict[Any, Optional[Tuple[float, float]]], ...]] = None,
             reg_observable: Union[Dict[Any, Optional[Tuple[str, str]]],
-                                  Tuple[Dict[Any, Optional[Tuple[str, str]]], ...]] = ('sparsify', 'equalize'),
+                                  Tuple[Dict[Any, Optional[Tuple[str, str]]], ...]] = None,
             reg_observable_w: Union[Dict[Any, Optional[Tuple[float, float]]],
-                                    Tuple[Dict[Any, Optional[Tuple[float, float]]], ...]] = (.5, .5),
+                                    Tuple[Dict[Any, Optional[Tuple[float, float]]], ...]] = None,
             reg_observable_elements: Union[Dict[Any, Optional[Tuple[List[int], List[int]]]],
-                                           Tuple[Dict[Any, Optional[Tuple[List[int], List[int]]]], ...]] = ([20, 30, 40, 50, 60], [20, 30, 40, 50, 60]),
-            l2_reg: float = 1e-5,
+                                           Tuple[Dict[Any, Optional[Tuple[List[int], List[int]]]], ...]] = None,
+            l2_reg: float = 0.,
 
     ):
         self.LOSS = dict(l1=self.l1,
@@ -37,6 +38,9 @@ class Loss(ABC):
 
         if loss_arr is not None:
             assert len(loss_arr) == len(loss_weights), 'loss_arr and loss_weights must have equal number of elements'
+
+            assert observable_as_target and os.path.exists(os.path.join(DATA_DIR, 'targets', target)), \
+                f' target file, {target}, is missing'
 
             for loss_arr_ in loss_arr:
                 assert loss_arr_.lower() in self.LOSS, f'Loss must be defined as on of the following' \
@@ -58,7 +62,6 @@ class Loss(ABC):
         self.reg_observable_w = reg_observable_w
         self.reg_observable_elements = reg_observable_elements
         self.l2_reg = l2_reg
-        self.projection_n_modes = projection_n_modes
 
         self.target_str = None
         if observable_as_target:
@@ -76,14 +79,13 @@ class Loss(ABC):
     ):
 
         loss = 0.
-        if not self.observable_as_target:
-            return loss
+        if self.observable_as_target:
 
-        for loss_func, loss_weight in zip(self.loss_stack, self.loss_weights):
-            loss = loss + loss_weight * loss_func(observable, target)
+            for loss_func, loss_weight in zip(self.loss_stack, self.loss_weights):
+                loss = loss + loss_weight * loss_func(observable, target)
 
-        for obs_func, weight, elements in zip(self.reg_obs_stack, self.reg_observable_w, self.reg_observable_elements):
-            loss = loss + weight * obs_func(observable, elements)
+            for obs_func, weight, elements in zip(self.reg_obs_stack, self.reg_observable_w, self.reg_observable_elements):
+                loss = loss + weight * obs_func(observable, elements)
 
         if self.l2_reg > 0.:
             loss = loss + self.l2_reg * self.l2_regularization(model_parameters)

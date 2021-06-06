@@ -11,6 +11,7 @@ from functools import partial
 from jax import numpy as np
 from spdc_inv.utils.utils import Crystal_hologram, Beam_profile
 from spdc_inv.models.spdc_model import SPDCmodel
+from spdc_inv.utils.defaults import COINCIDENCE_RATE, DENSITY_MATRIX, TOMOGRAPHY_MATRIX
 
 
 class BaseTrainer(ABC):
@@ -34,7 +35,8 @@ class BaseTrainer(ABC):
             learn_crystal_waists: bool,
             keep_best: bool,
             n_devices: int,
-            projection,
+            projection_coincidence_rate,
+            projection_tomography_matrix,
             interaction,
             pump,
             signal,
@@ -59,19 +61,25 @@ class BaseTrainer(ABC):
         self.DeltaZ = - interaction.maxZ / 2  # DeltaZ: longitudinal middle of the crystal (with negative sign).
                                               # To propagate generated fields back to the middle of the crystal
 
-        self.projection = projection
+        self.projection_coincidence_rate = projection_coincidence_rate
+        self.projection_tomography_matrix = projection_tomography_matrix
 
-        assert list(observable_vec.keys()) == ['coincidence_rate',
-                                               'density_matrix'], 'observable_vec must only contain ' \
-                                                                  'the keys [coincidence_rate, density_matrix]'
+        assert list(observable_vec.keys()) == [COINCIDENCE_RATE,
+                                               DENSITY_MATRIX,
+                                               TOMOGRAPHY_MATRIX], 'observable_vec must only contain ' \
+                                                                   'the keys [coincidence_rate,' \
+                                                                   'density_matrix, tomography_matrix]'
 
-        self.coincidence_rate_observable = observable_vec['coincidence_rate']
-        self.density_matrix_observable = observable_vec['density_matrix']
+        self.coincidence_rate_observable = observable_vec[COINCIDENCE_RATE]
+        self.density_matrix_observable = observable_vec[DENSITY_MATRIX]
+        self.tomography_matrix_observable = observable_vec[TOMOGRAPHY_MATRIX]
         self.coincidence_rate_loss = None
         self.density_matrix_loss = None
+        self.tomography_matrix_loss = None
         self.opt_init, self.opt_update, self.get_params = None, None, None
         self.target_coincidence_rate = None
         self.target_density_matrix = None
+        self.target_tomography_matrix = None
 
         # Initialize pump and crystal coefficients
         self.pump_coeffs_real, \
@@ -129,17 +137,18 @@ class BaseTrainer(ABC):
                                            learn_pump_coeffs or learn_pump_waists)
 
         self.model = SPDCmodel(pump,
-                               signal,
-                               idler,
-                               projection,
-                               interaction,
-                               self.pump_structure,
-                               self.crystal_hologram,
-                               self.poling_period,
-                               self.DeltaZ,
-                               self.coincidence_rate_observable,
-                               self.density_matrix_observable,
-                               )
+                               signal=signal,
+                               idler=idler,
+                               projection_coincidence_rate=projection_coincidence_rate,
+                               projection_tomography_matrix=projection_tomography_matrix,
+                               interaction=interaction,
+                               pump_structure=self.pump_structure,
+                               crystal_hologram=self.crystal_hologram,
+                               poling_period=self.poling_period,
+                               DeltaZ=self.DeltaZ,
+                               coincidence_rate_observable=self.coincidence_rate_observable,
+                               density_matrix_observable=self.density_matrix_observable,
+                               tomography_matrix_observable=self.tomography_matrix_observable,)
 
     def inference(self):
         self.model.learn_mode = False
@@ -190,7 +199,7 @@ class BaseTrainer(ABC):
 
             if best_loss is None or loss_vld[epoch] < best_loss and not onp.isnan(loss_vld[epoch]):
 
-                print(f'best validation objective loss at epoch {epoch}')
+                print(f'best validation objective loss is reached\n')
 
                 model_parameters = self.get_params(opt_state)
                 pump_coeffs_real, \
@@ -223,10 +232,10 @@ class BaseTrainer(ABC):
                 epochs_without_improvement = 0
                 if self.keep_best:
                     self.model_parameters = model_parameters
-                    print(f'\nmodel parameters updated')
+                    print(f'parameters are updated\n')
             else:
                 epochs_without_improvement += 1
-                print(f'\nnumber of epochs without improvement {epochs_without_improvement}, '
+                print(f'number of epochs without improvement {epochs_without_improvement}, '
                       f'best objective loss {best_loss}')
 
             if not self.keep_best:
@@ -296,13 +305,22 @@ class BaseTrainer(ABC):
 
         observables = self.model.forward(model_parameters, keys)
 
-        (coincidence_rate, density_matrix) = observables
-        coincidence_rate = coincidence_rate / np.sum(np.abs(coincidence_rate))
+        (coincidence_rate, density_matrix, tomography_matrix) = observables
 
+        if self.coincidence_rate_loss.observable_as_target:
+            coincidence_rate = coincidence_rate / np.sum(np.abs(coincidence_rate))
         coincidence_rate_loss = self.coincidence_rate_loss.apply(coincidence_rate,
                                                                  model_parameters, self.target_coincidence_rate)
 
+        if self.density_matrix_loss.observable_as_target:
+            density_matrix = density_matrix / np.trace(np.real(density_matrix))
         density_matrix_loss = self.density_matrix_loss.apply(density_matrix,
                                                              model_parameters, self.target_density_matrix)
 
-        return coincidence_rate_loss + density_matrix_loss
+        if self.tomography_matrix_loss.observable_as_target:
+            tomography_matrix = tomography_matrix / np.sum(np.abs(tomography_matrix))
+        tomography_matrix_loss = self.tomography_matrix_loss.apply(tomography_matrix,
+                                                                   model_parameters, self.target_tomography_matrix)
+
+        return coincidence_rate_loss + density_matrix_loss + tomography_matrix_loss
+

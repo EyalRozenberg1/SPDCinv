@@ -1,16 +1,20 @@
 import random
 import os
+import shutil
 from jax import pmap
 from jax import numpy as np
 from datetime import datetime
-from typing import Tuple, Sequence, Dict, Any, Optional, List
+from typing import Tuple, Dict, Any, Optional, List, Union
 from spdc_inv import DATA_DIR
 from spdc_inv import LOGS_DIR
+from spdc_inv import RES_DIR
 from spdc_inv.utils.utils import Beam
-from spdc_inv.utils.defaults import COINCIDENCE_RATE, DENSITY_MATRIX, REAL, IMAG
+from spdc_inv.utils.defaults import COINCIDENCE_RATE, DENSITY_MATRIX, TOMOGRAPHY_MATRIX
+from spdc_inv.utils.defaults import REAL, IMAG
 from spdc_inv.loss.loss import Loss
 from spdc_inv.data.interaction import Interaction
-from spdc_inv.experiments.utils import Projection
+from spdc_inv.experiments.utils import Projection_coincidence_rate, Projection_tomography_matrix
+from spdc_inv.experiments.results_and_stats_utils import save_results, save_training_statistics
 from spdc_inv.training.trainer import BaseTrainer
 from spdc_inv.optim.optimizer import Optimizer
 
@@ -20,7 +24,6 @@ def run_experiment(
         seed: int = 42,
         CUDA_VISIBLE_DEVICES: str = None,
         JAX_ENABLE_X64: str = 'True',
-        save_results: bool = True,
         learn_mode: bool = False,
         learn_pump_coeffs: bool = True,
         learn_pump_waists: bool = True,
@@ -81,13 +84,23 @@ def run_experiment(
         dk_offset: float = 1.,
         power_signal: float = 1.,
         power_idler: float = 1.,
-        projection_basis: str = 'LG',
-        projection_max_mode1: int = 1,
-        projection_max_mode2: int = 4,
-        projection_waist: float = None,
-        projection_wavelength: float = None,
-        projection_polarization: str = 'y',
-        projection_z: float = 0.,
+        coincidence_projection_basis: str = 'LG',
+        coincidence_projection_max_mode1: int = 1,
+        coincidence_projection_max_mode2: int = 4,
+        coincidence_projection_waist: float = None,
+        coincidence_projection_wavelength: float = None,
+        coincidence_projection_polarization: str = 'y',
+        coincidence_projection_z: float = 0.,
+        tomography_projection_basis: str = 'LG',
+        tomography_projection_max_mode1: int = 1,
+        tomography_projection_max_mode2: int = 1,
+        tomography_projection_waist: float = None,
+        tomography_projection_wavelength: float = None,
+        tomography_projection_polarization: str = 'y',
+        tomography_projection_z: float = 0.,
+        tomography_relative_phase: List[Union[Union[int, float], Any]] = None,
+        tomography_quantum_state: str = 'qubit'
+
 ):
 
     now = datetime.now()
@@ -123,7 +136,6 @@ def run_experiment(
         'date and time': date_and_time,
         'number of gpu devices': n_devices,
         'JAX_ENABLE_X64': JAX_ENABLE_X64,
-        'Saving Results': save_results,
     }
     specs.update({'----- Learning Parameters': '----- '})
     specs.update(learning_params)
@@ -137,6 +149,8 @@ def run_experiment(
     specs.update(projection_params)
 
     logs_dir = os.path.join(LOGS_DIR, run_name)
+    if os.path.exists(logs_dir):
+        shutil.rmtree(logs_dir)
     os.makedirs(logs_dir, exist_ok=True)
 
     specs_file = os.path.join(logs_dir, 'data_specs.txt')
@@ -184,23 +198,44 @@ def run_experiment(
         key=interaction_key,
     )
 
-    projection = Projection(
+    projection_coincidence_rate = Projection_coincidence_rate(
+        calculate_observable=observable_vec[COINCIDENCE_RATE],
         waist_pump0=interaction.waist_pump0,
         signal_wavelength=interaction.lam_signal,
         crystal_x=interaction.x,
         crystal_y=interaction.y,
         temperature=interaction.Temperature,
         ctype=interaction.ctype,
-        polarization=projection_polarization,
-        z=projection_z,
-        projection_basis=projection_basis,
-        max_mode1=projection_max_mode1,
-        max_mode2=projection_max_mode2,
-        waist=projection_waist,
-        wavelength=projection_wavelength,
+        polarization=coincidence_projection_polarization,
+        z=coincidence_projection_z,
+        projection_basis=coincidence_projection_basis,
+        max_mode1=coincidence_projection_max_mode1,
+        max_mode2=coincidence_projection_max_mode2,
+        waist=coincidence_projection_waist,
+        wavelength=coincidence_projection_wavelength,
         tau=tau
     )
 
+    projection_tomography_matrix = Projection_tomography_matrix(
+        calculate_observable=observable_vec[DENSITY_MATRIX] or observable_vec[TOMOGRAPHY_MATRIX],
+        waist_pump0=interaction.waist_pump0,
+        signal_wavelength=interaction.lam_signal,
+        crystal_x=interaction.x,
+        crystal_y=interaction.y,
+        temperature=interaction.Temperature,
+        ctype=interaction.ctype,
+        polarization=tomography_projection_polarization,
+        z=tomography_projection_z,
+        relative_phase=tomography_relative_phase,
+        tomography_quantum_state=tomography_quantum_state,
+        projection_basis=tomography_projection_basis,
+        max_mode1=tomography_projection_max_mode1,
+        max_mode2=tomography_projection_max_mode2,
+        waist=tomography_projection_waist,
+        wavelength=tomography_projection_wavelength,
+        tau=tau,
+    )
+    
     Pump = Beam(lam=interaction.lam_pump,
                 ctype=interaction.ctype,
                 polarization=interaction.pump_polarization,
@@ -234,7 +269,8 @@ def run_experiment(
         learn_crystal_waists=learn_crystal_waists,
         keep_best=keep_best,
         n_devices=n_devices,
-        projection=projection,
+        projection_coincidence_rate=projection_coincidence_rate,
+        projection_tomography_matrix=projection_tomography_matrix,
         interaction=interaction,
         pump=Pump,
         signal=Signal,
@@ -245,7 +281,6 @@ def run_experiment(
     if learn_mode:
         trainer.coincidence_rate_loss = Loss(observable_as_target=observable_vec[COINCIDENCE_RATE],
                                              target=os.path.join(target, 'coincidence_rate.npy'),
-                                             projection_n_modes=projection.projection_n_modes,
                                              loss_arr=loss_arr[COINCIDENCE_RATE],
                                              loss_weights=loss_weights[COINCIDENCE_RATE],
                                              reg_observable=reg_observable[COINCIDENCE_RATE],
@@ -255,73 +290,97 @@ def run_experiment(
 
         trainer.density_matrix_loss = Loss(observable_as_target=observable_vec[DENSITY_MATRIX],
                                            target=os.path.join(target, 'density_matrix.npy'),
-                                           projection_n_modes=projection.projection_n_modes,
                                            loss_arr=loss_arr[DENSITY_MATRIX],
                                            loss_weights=loss_weights[DENSITY_MATRIX],
                                            reg_observable=reg_observable[DENSITY_MATRIX],
                                            reg_observable_w=reg_observable_w[DENSITY_MATRIX],
-                                           reg_observable_elements=reg_observable_elements[DENSITY_MATRIX],
-                                           l2_reg=l2_reg)
+                                           reg_observable_elements=reg_observable_elements[DENSITY_MATRIX],)
+
+        trainer.tomography_matrix_loss = Loss(observable_as_target=observable_vec[TOMOGRAPHY_MATRIX],
+                                           target=os.path.join(target, 'tomography_matrix.npy'),
+                                           loss_arr=loss_arr[TOMOGRAPHY_MATRIX],
+                                           loss_weights=loss_weights[TOMOGRAPHY_MATRIX],
+                                           reg_observable=reg_observable[TOMOGRAPHY_MATRIX],
+                                           reg_observable_w=reg_observable_w[TOMOGRAPHY_MATRIX],
+                                           reg_observable_elements=reg_observable_elements[TOMOGRAPHY_MATRIX],)
 
         trainer.opt_init, trainer.opt_update, trainer.get_params = Optimizer(optimizer=optimizer,
                                                                              exp_decay_lr=exp_decay_lr,
                                                                              step_size=step_size,
                                                                              decay_steps=decay_steps,
                                                                              decay_rate=decay_rate)
-        if trainer.coincidence_rate_loss.target_str:
+
+        if trainer.coincidence_rate_loss.target_str and observable_vec[COINCIDENCE_RATE]:
             trainer.target_coincidence_rate = pmap(lambda x:
                                                    np.load(os.path.join(
                                                        DATA_DIR, 'targets', trainer.coincidence_rate_loss.target_str
                                                    )))(np.arange(n_devices))
 
-        if trainer.density_matrix_loss.target_str:
+        if trainer.density_matrix_loss.target_str and observable_vec[DENSITY_MATRIX]:
             trainer.target_density_matrix = pmap(lambda x:
                                                  np.load(os.path.join(
                                                      DATA_DIR, 'targets', trainer.density_matrix_loss.target_str
                                                  )))(np.arange(n_devices))
 
-        fit_results = trainer.fit()
+        if trainer.tomography_matrix_loss.target_str and observable_vec[TOMOGRAPHY_MATRIX]:
+            trainer.target_tomography_matrix = pmap(lambda x:
+                                                    np.load(os.path.join(
+                                                        DATA_DIR, 'targets', trainer.tomography_matrix_loss.target_str
+                                                    )))(np.arange(n_devices))
 
-        if save_results:
-            observables = trainer.inference()
-            (coincidence_rate, density_matrix) = observables
+        fit_results = trainer.fit()
+        save_training_statistics(
+            logs_dir,
+            fit_results,
+            interaction,
+            trainer.model_parameters,
+        )
+
+        observables = trainer.inference()
+
+        results_dir = os.path.join(RES_DIR, run_name)
+        if os.path.exists(results_dir):
+            shutil.rmtree(results_dir)
+        os.makedirs(results_dir, exist_ok=True)
+
+        save_results(
+            results_dir,
+            observable_vec,
+            observables,
+            projection_coincidence_rate,
+            projection_tomography_matrix,
+            Signal,
+            Idler,
+        )
 
     else:
         observables = trainer.inference()
-        (coincidence_rate, density_matrix) = observables
 
-        import matplotlib.pyplot as plt
-        import numpy as onp
-        from spdc_inv.utils.utils import unwrap_kron, h_bar, eps0, c
-        G1_Normalization = lambda w: h_bar * w / (2 * eps0 * c)
+        results_dir = os.path.join(RES_DIR, run_name)
+        if os.path.exists(results_dir):
+            shutil.rmtree(results_dir)
+        os.makedirs(results_dir, exist_ok=True)
 
-        coincidence_rate = coincidence_rate[0]
+        specs_file = os.path.join(results_dir, 'data_specs.txt')
+        with open(specs_file, 'w') as f:
+            for k, v in specs.items():
+                f.write(f"{k}: {str(v)}\n")
 
-        coincidence_rate_tensor = onp.zeros((projection.projection_n_modes1, projection.projection_n_modes2, projection.projection_n_modes1, projection.projection_n_modes2), dtype=onp.float32)
-        coincidence_rate = unwrap_kron(coincidence_rate_tensor, coincidence_rate, projection.projection_n_modes1, projection.projection_n_modes2)
-
-        # Compute and plot reduced coincidence_rate
-        # normalization factor
-        g1_ss_normalization = G1_Normalization(Signal.w)
-        g1_ii_normalization = G1_Normalization(Idler.w)
-        coincidence_rate_reduced = coincidence_rate[0, :, 0, :]
-        coincidence_rate_reduced = coincidence_rate_reduced * tau / (g1_ii_normalization * g1_ss_normalization)
-
-        # plot coincidence_rate 2d
-        plt.imshow(coincidence_rate_reduced)
-        plt.title(r'$G^{(2)}$ (coincidences)')
-        plt.xlabel(r'signal mode i')
-        plt.ylabel(r'idle mode j')
-        plt.colorbar()
-        plt.xticks(onp.arange(projection.projection_n_modes), onp.arange(projection.projection_n_modes) - int(projection.projection_n_modes / 2))
-        plt.yticks(onp.arange(projection.projection_n_modes), onp.arange(projection.projection_n_modes) - int(projection.projection_n_modes / 2))
-        plt.show()
+        save_results(
+            results_dir,
+            observable_vec,
+            observables,
+            projection_coincidence_rate,
+            projection_tomography_matrix,
+            Signal,
+            Idler,
+        )
 
 
 if __name__ == "__main__":
 
     learning_params = {
-        'learn_mode': False,
+        'learn_mode': True,
         'learn_pump_coeffs': True,
         'learn_pump_waists':  True,
         'learn_crystal_coeffs':  True,
@@ -335,30 +394,36 @@ if __name__ == "__main__":
         'target': 'qutrit',
         'observable_vec': {
             COINCIDENCE_RATE: True,
-            DENSITY_MATRIX: False
+            DENSITY_MATRIX: False,
+            TOMOGRAPHY_MATRIX: False
         }
     }
 
     loss_params = {
         'loss_arr': {
             COINCIDENCE_RATE: ('l1', 'l2'),
-            DENSITY_MATRIX: None
+            DENSITY_MATRIX: None,
+            TOMOGRAPHY_MATRIX: None
         },
         'loss_weights': {
             COINCIDENCE_RATE: (1., .5),
-            DENSITY_MATRIX: None
+            DENSITY_MATRIX: None,
+            TOMOGRAPHY_MATRIX: None
         },
         'reg_observable': {
             COINCIDENCE_RATE: ('sparsify', 'equalize'),
-            DENSITY_MATRIX: None
+            DENSITY_MATRIX: None,
+            TOMOGRAPHY_MATRIX: None
         },
         'reg_observable_w': {
             COINCIDENCE_RATE: (.5, .5),
-            DENSITY_MATRIX: None
+            DENSITY_MATRIX: None,
+            TOMOGRAPHY_MATRIX: None
         },
         'reg_observable_elements': {
             COINCIDENCE_RATE: ([20, 30, 40, 50, 60], [20, 30, 40, 50, 60]),
-            DENSITY_MATRIX: None
+            DENSITY_MATRIX: None,
+            TOMOGRAPHY_MATRIX: None
         },
         'tau': 1e-9,
     }
@@ -411,13 +476,22 @@ if __name__ == "__main__":
     }
 
     projection_params = {
-        'projection_basis': 'LG',
-        'projection_max_mode1': 1,
-        'projection_max_mode2': 4,
-        'projection_waist': None,
-        'projection_wavelength': None,
-        'projection_polarization': 'y',
-        'projection_z': 0.,
+        'coincidence_projection_basis': 'LG',
+        'coincidence_projection_max_mode1': 1,
+        'coincidence_projection_max_mode2': 4,
+        'coincidence_projection_waist': None,
+        'coincidence_projection_wavelength': None,
+        'coincidence_projection_polarization': 'y',
+        'coincidence_projection_z': 0.,
+        'tomography_projection_basis': 'LG',
+        'tomography_projection_max_mode1': 1,
+        'tomography_projection_max_mode2': 1,
+        'tomography_projection_waist': None,
+        'tomography_projection_wavelength': None,
+        'tomography_projection_polarization': 'y',
+        'tomography_projection_z': 0.,
+        'tomography_relative_phase': [0, np.pi, 3 * (np.pi / 2), np.pi / 2],
+        'tomography_quantum_state': 'qubit',
     }
 
 
@@ -426,7 +500,6 @@ if __name__ == "__main__":
         seed=42,
         JAX_ENABLE_X64='True',
         CUDA_VISIBLE_DEVICES='0, 1',
-        save_results=True,
         **learning_params,
         **loss_params,
         **optimizer_params,

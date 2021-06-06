@@ -256,7 +256,9 @@ class Interaction(ABC):
         return coeffs_real, coeffs_imag
 
 
-    def initial_pump_waists(self):
+    def initial_pump_waists(
+            self,
+    ):
         if self.initial_pump_waist == "waist_pump0":
             waist_pump = np.ones(self.pump_n_modes, dtype=np.float32) * self.waist_pump0 * 1e5
 
@@ -326,7 +328,9 @@ class Interaction(ABC):
         return coeffs_real, coeffs_imag
 
 
-    def initial_crystal_waists(self):
+    def initial_crystal_waists(
+            self,
+    ):
 
         if not self.crystal_basis:
             return None

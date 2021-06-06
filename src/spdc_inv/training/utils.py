@@ -81,7 +81,7 @@ def kron(a, b, multiple_devices: bool = True):
 
 
 @jit
-def coincidence_rate_calc(a, b, c, batch_size):
+def projection_matrix_calc(a, b, c, batch_size):
     """
 
     Parameters

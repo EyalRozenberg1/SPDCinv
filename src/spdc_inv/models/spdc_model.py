@@ -1,9 +1,11 @@
 from abc import ABC
 import jax.random as random
 import jax.numpy as np
+import sys
 from spdc_inv.models.utils import Field
 from spdc_inv.models.utils import crystal_prop, propagate
-from spdc_inv.training.utils import coincidence_rate_calc, decompose, fix_power
+from spdc_inv.training.utils import projection_matrix_calc, decompose, fix_power
+from spdc_inv.utils.defaults import QUBIT, QUTRIT
 
 
 class SPDCmodel(ABC):
@@ -16,7 +18,8 @@ class SPDCmodel(ABC):
             pump,
             signal,
             idler,
-            projection,
+            projection_coincidence_rate,
+            projection_tomography_matrix,
             interaction,
             pump_structure,
             crystal_hologram,
@@ -24,12 +27,14 @@ class SPDCmodel(ABC):
             DeltaZ,
             coincidence_rate_observable,
             density_matrix_observable,
+            tomography_matrix_observable,
     ):
 
         self.pump = pump
         self.signal = signal
         self.idler = idler
-        self.projection = projection
+        self.projection_coincidence_rate = projection_coincidence_rate
+        self.projection_tomography_matrix = projection_tomography_matrix
         self.interaction = interaction
         self.pump_structure = pump_structure
         self.crystal_hologram = crystal_hologram
@@ -37,6 +42,7 @@ class SPDCmodel(ABC):
         self.DeltaZ = DeltaZ
         self.coincidence_rate_observable = coincidence_rate_observable
         self.density_matrix_observable = density_matrix_observable
+        self.tomography_matrix_observable = tomography_matrix_observable
         self.N = None
         self.N_device = None
         self.learn_mode = None
@@ -122,41 +128,86 @@ class SPDCmodel(ABC):
         ----------
         coincidence_rate: coincidence rate matrix
         density_matrix: Density matrix
+        tomography_matrix: Tomography Matrix
         Returns The function returns the desired observables
         -------
         """
 
-        coincidence_rate, density_matrix = None, None
+        coincidence_rate, density_matrix, tomography_matrix = None, None, None
         if self.coincidence_rate_observable:
-            signal_beam_decompose = decompose(signal_out,
-                                              self.projection.basis_arr
-                                              ).reshape(
-                self.N_device, self.projection.projection_n_modes1, self.projection.projection_n_modes2)
+            coincidence_rate = self.decompose_and_get_observable(
+                signal_out,
+                idler_out,
+                idler_vac,
+                self.projection_coincidence_rate.basis_arr,
+                self.projection_coincidence_rate.projection_n_modes1,
+                self.projection_coincidence_rate.projection_n_modes2
+            )
 
-            idler_beam_decompose = decompose(idler_out,
-                                             self.projection.basis_arr
-                                             ).reshape(
-                self.N_device, self.projection.projection_n_modes1, self.projection.projection_n_modes2)
+        if self.tomography_matrix_observable or self.density_matrix_observable:
+            tomography_matrix = self.decompose_and_get_observable(
+                signal_out,
+                idler_out,
+                idler_vac,
+                self.projection_tomography_matrix.basis_arr,
+                self.projection_tomography_matrix.projection_n_state1,
+                self.projection_tomography_matrix.projection_n_state2
+            )
 
-            idler_vac_decompose = decompose(idler_vac,
-                                            self.projection.basis_arr
-                                            ).reshape(
-                self.N_device, self.projection.projection_n_modes1, self.projection.projection_n_modes2)
+            if self.density_matrix_observable:
+                density_matrix = self.get_density_matrix(tomography_matrix)
 
-            # say there are no higher modes by normalizing the power
-            signal_beam_decompose = fix_power(signal_beam_decompose, signal_out)
-            idler_beam_decompose = fix_power(idler_beam_decompose, idler_out)
-            idler_vac_decompose = fix_power(idler_vac_decompose, idler_vac)
+        return coincidence_rate, density_matrix, tomography_matrix
 
-            coincidence_rate = coincidence_rate_calc(
-                signal_beam_decompose,
-                idler_beam_decompose,
-                idler_vac_decompose,
-                self.N
-            ).reshape(self.projection.projection_n_modes1 ** 2, self.projection.projection_n_modes2 ** 2)
+    def decompose_and_get_observable(
+            self,
+            signal_out,
+            idler_out,
+            idler_vac,
+            basis_arr,
+            projection_n_1,
+            projection_n_2
+    ):
 
-        if self.density_matrix_observable:
-            density_matrix = 'should be implemented'
+        signal_beam_decompose = decompose(
+            signal_out,
+            basis_arr
+        ).reshape(
+            self.N_device,
+            projection_n_1,
+            projection_n_2)
+
+        idler_beam_decompose = decompose(
+            idler_out,
+            basis_arr
+        ).reshape(
+            self.N_device,
+            projection_n_1,
+            projection_n_2)
+
+        idler_vac_decompose = decompose(
+            idler_vac,
+            basis_arr
+        ).reshape(
+            self.N_device,
+            projection_n_1,
+            projection_n_2)
+
+        # say there are no higher modes by normalizing the power
+        signal_beam_decompose = fix_power(signal_beam_decompose, signal_out)
+        idler_beam_decompose = fix_power(idler_beam_decompose, idler_out)
+        idler_vac_decompose = fix_power(idler_vac_decompose, idler_vac)
+
+        observable = projection_matrix_calc(
+            signal_beam_decompose,
+            idler_beam_decompose,
+            idler_vac_decompose,
+            self.N
+        ).reshape(
+            projection_n_1 ** 2,
+            projection_n_2 ** 2)
+        
+        return observable
 
         return coincidence_rate, density_matrix
 

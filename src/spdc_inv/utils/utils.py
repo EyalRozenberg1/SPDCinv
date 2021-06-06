@@ -3,6 +3,8 @@ import scipy.special as sp
 import jax.numpy as np
 import math
 from jax.ops import index_update
+from typing import List, Union, Any
+from spdc_inv.utils.defaults import QUBIT
 
 
 # Constants:
@@ -94,7 +96,7 @@ def HermiteBank(
     Hermite_dict = {}
     for nx in range(max_mode_x):
         for ny in range(max_mode_y):
-            Hermite_dict[str(nx) + str(ny)] = Hermite_gauss(lam, refractive_index, W0, nx, ny, z, x, y)
+            Hermite_dict[f'|HG{nx}{ny}>'] = Hermite_gauss(lam, refractive_index, W0, nx, ny, z, x, y)
     return np.array(list(Hermite_dict.values())), [*Hermite_dict]
 
 
@@ -106,7 +108,8 @@ def LaguerreBank(
         max_mode_l,
         x,
         y,
-        z=0
+        z=0,
+        get_dict: bool = False,
 ):
     """
     generates a dictionary of Laguerre Gauss basis functions
@@ -121,6 +124,8 @@ def LaguerreBank(
     x: transverse points, x axis
     y: transverse points, y axis
     z: projection longitudinal position
+    get_dict: (True/False) if True, the function will return a dictionary,
+              else the dictionary is splitted to basis functions np.array and list of dictionary keys.
 
     Returns
     -------
@@ -128,9 +133,72 @@ def LaguerreBank(
     """
     Laguerre_dict = {}
     for p in range(max_mode_p):
-        for l in range(-max_mode_l, max_mode_l+1):
-            Laguerre_dict[str(p) + str(l)] = Laguerre_gauss(lam, refractive_index, W0, l, p, z, x, y)
+        for l in range(-max_mode_l, max_mode_l + 1):
+            Laguerre_dict[f'|LG{p}{l}>'] = Laguerre_gauss(lam, refractive_index, W0, l, p, z, x, y)
+    if get_dict:
+        return Laguerre_dict
+
     return np.array(list(Laguerre_dict.values())), [*Laguerre_dict]
+
+
+def TomographyBank(
+        lam,
+        refractive_index,
+        W0,
+        max_mode_p,
+        max_mode_l,
+        x,
+        y,
+        z=0,
+        relative_phase: List[Union[Union[int, float], Any]] = None,
+        tomography_quantum_state: str = None
+):
+    """
+    generates a dictionary of basis function with projections into two orthogonal LG bases and mutually unbiased
+    bases (MUBs). The MUBs are constructed from superpositions of the two orthogonal LG bases.
+    according to: https://doi.org/10.1364/AOP.11.000067
+
+    Parameters
+    ----------
+    lam; wavelength
+    refractive_index: refractive index
+    W0: beam waist
+    max_mode_p: maximum projection mode 1st axis
+    max_mode_l: maximum projection mode 2nd axis
+    x: transverse points, x axis
+    y: transverse points, y axis
+    z: projection longitudinal position
+    relative_phase: The relative phase between the mutually unbiased bases (MUBs) states
+    tomography_quantum_state: the current quantum state we calculate it tomography matrix.
+                              currently we support: qubit/qutrit
+
+    Returns
+    -------
+    dictionary of bases functions used for constructing the tomography matrix
+    """
+
+    TOMO_dict = \
+        LaguerreBank(
+            lam,
+            refractive_index,
+            W0,
+            max_mode_p,
+            max_mode_l,
+            x, y, z,
+            get_dict=True)
+
+    if tomography_quantum_state is QUBIT:
+        del TOMO_dict['|LG00>']
+
+    LG_modes, LG_string = np.array(list(TOMO_dict.values())), [*TOMO_dict]
+
+    for m in range(len(TOMO_dict) - 1, -1, -1):
+        for n in range(m - 1, -1, -1):
+            for k in range(len(relative_phase)):
+                TOMO_dict[f'{LG_string[m]}+e^j{str(relative_phase[k]/np.pi)}π{LG_string[n]}'] = \
+                    (1 / np.sqrt(2)) * (LG_modes[m] + np.exp(1j * relative_phase[k]) * LG_modes[n])
+
+    return np.array(list(TOMO_dict.values())), [*TOMO_dict]
 
 
 def Hermite_gauss(lam, refractive_index, W0, nx, ny, z, X, Y, coef=None):
@@ -328,7 +396,7 @@ class Beam_profile(ABC):
                     idx += 1
 
             if not learn_pump:
-                self.E = self._profile_laguerre_gauss(pump_coeffs_real, pump_coeffs_imag)
+                self.E = self._profile_laguerre_gauss(pump_coeffs_real, pump_coeffs_imag, waist_pump)
 
         elif self.pump_basis.lower() == "hg":  # Hermite-Gauss
             self.coef = np.zeros(len(waist_pump), dtype=np.float32)
@@ -604,85 +672,6 @@ def fix_power(
 
 
 
-
-
-'''
-make a beam from basis modes
-pump_basis_arr  - a dictionary of basis modes. ordered in dictionary order (00,01,10,11)
-pump_coeffs - the wieght of each mode in pump_basis_arr
-these two have to have the same length!
-'''
-#@jit
-def make_beam_from_coeffs(pump_basis_arr, pump_coeffs):
-    if len(pump_coeffs) != len(pump_basis_arr):
-        print('WRONG NUMBER OF PARAMETERS!!!')
-        return
-    return (pump_coeffs[:, None, None] * pump_basis_arr).sum(0)
-
-
-def type_beam_from_pump_str(type, pump_basis_str, pump_coeffs, coeffs_str, pump_coeffs_gt=None):
-    print_str = f'initial {type} pump coefficients string: {coeffs_str}\n\n'
-    if len(pump_coeffs.shape) > 1:
-        pump_coeffs = pump_coeffs[0]
-    if pump_coeffs_gt is None:
-        print_str += f'{type} coefficients:\n'
-        for n, mode_x in enumerate(pump_basis_str):
-            coeffs_str = ' : {:.4}\n'.format(pump_coeffs[n])
-            print_str += type + mode_x + coeffs_str
-    else:
-        print_str += f'{type} coefficients \t ground truth \n'
-        for n, mode_x in enumerate(pump_basis_str):
-            coeffs_str = ' : {:.4}\t\t\t {:.4}\n'.format(pump_coeffs[n], pump_coeffs_gt[n])
-            print_str += type + mode_x + coeffs_str
-    return print_str
-
-
-def type_waists_from_pump_str(type, pump_basis_str, waist_coeffs):
-    print_str = '\n\n'
-
-    if len(waist_coeffs.shape) > 1:
-        waist_coeffs = waist_coeffs[0]
-
-    print_str += f'{type} waist coefficients string:\n'
-    for n, mode_x in enumerate(pump_basis_str):
-        coeffs_str = ' : {:.4}um\n'.format(waist_coeffs[n])
-        print_str += type + mode_x + coeffs_str
-    return print_str
-
-
-def type_poling_from_crystal_str(type, crystal_coeffs, crystal_str):
-    print_str = f'\n\ninitial {type} crystal coefficients string: {crystal_str}\n\n'
-
-    print_str += f'{type} coefficients:\n'
-    for n in range(len(crystal_coeffs)):
-        coeffs_str = ' : {:.4}\n'.format(crystal_coeffs[n])
-        print_str += str(n) + coeffs_str
-
-    return print_str
-
-
-def type_waists_from_crystal_str(type, waist_coeffs):
-    print_str = '\n\n'
-
-    print_str += f'{type} r_scale coefficients string:\n'
-    for n in range(len(waist_coeffs)):
-        coeffs_str = ' : {:.4}um\n'.format(waist_coeffs[n])
-        print_str += str(n) + coeffs_str
-
-    return print_str
-
-
-'''
-unwrap_kron takes a Kronicker product of size M^2 x M^2 and turns is into an
-M x M x M x M array. It is used only for illustration and not during the learning
-'''
-def unwrap_kron(G, C, M1, M2):
-    for i in range(M1):
-        for j in range(M2):
-            for k in range(M1):
-                for l in range(M2):
-                    G[i, j, k, l] = C[k + M1 * i, l + M2 * j]
-    return G
 
 
 '''

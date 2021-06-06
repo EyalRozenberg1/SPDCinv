@@ -1,4 +1,7 @@
 COINCIDENCE_RATE = 'coincidence_rate'
 DENSITY_MATRIX = 'density_matrix'
+TOMOGRAPHY_MATRIX = 'tomography_matrix'
 REAL = 'real'
 IMAG = 'imag'
+QUBIT = 'qubit'
+QUTRIT = 'qutrit'
