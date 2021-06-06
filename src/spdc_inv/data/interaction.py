@@ -202,7 +202,6 @@ class Interaction(ABC):
             self.initial_crystal_waist = initial_crystal_waist
             self.crystal_waists_path = crystal_waists_path
 
-
     def initial_pump_coefficients(
             self,
     ):
@@ -236,7 +235,7 @@ class Interaction(ABC):
             for index, coeff in self.custom_pump_coefficient[IMAG].items():
                 assert type(index) is int, f'index {index} must be int type'
                 assert type(coeff) is float, f'coeff {coeff} must be float type'
-                coeffs_real = coeffs_imag(coeffs_real, index, coeff)
+                coeffs_imag = index_update(coeffs_imag, index, coeff)
 
 
         elif self.initial_pump_coefficient == "load":
@@ -309,7 +308,7 @@ class Interaction(ABC):
             for index, coeff in self.custom_crystal_coefficient[IMAG].items():
                 assert type(index) is int, f'index {index} must be int type'
                 assert type(coeff) is float, f'coeff {coeff} must be float type'
-                coeffs_real = coeffs_imag(coeffs_real, index, coeff)
+                coeffs_imag = index_update(coeffs_imag, index, coeff)
 
         elif self.initial_crystal_coefficient == "load":
             assert self.crystal_coefficient_path, 'Path to crystal coefficients must be defined'
@@ -341,7 +340,7 @@ class Interaction(ABC):
         elif self.initial_crystal_waist == "load":
             assert self.crystal_waists_path, 'Path to crystal waists must be defined'
 
-            r_scale = np.load(os.path.join(self.crystal_coefficient_path, "CrystalWaistCoeffs.npy")) * 1e-1
+            r_scale = np.load(os.path.join(self.crystal_waists_path, "CrystalWaistCoeffs.npy")) * 1e-1
 
         else:
             r_scale = None

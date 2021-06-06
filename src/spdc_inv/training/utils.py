@@ -79,49 +79,44 @@ def kron(a, b, multiple_devices: bool = True):
     else:
         return (a[:, :, None, :, None] * b[:, None, :, None, :]).sum(0)
 
-
 @jit
-def projection_matrix_calc(a, b, c, batch_size):
+def projection_matrices_calc(a, b, c, N, multiple_devices: bool = False):
     """
 
     Parameters
     ----------
     a, b, c: the interacting fields
-    batch_size: number of interacting vacuum state elements
+    N: Total number of interacting vacuum state elements
+    multiple_devices: (True/False) whether multiple devices are used
 
-    Returns the coincidence matrix
+    Returns the projective matrices
     -------
 
     """
-    G1_ss        = kron(np.conj(a), a) / batch_size
-    G1_ii        = kron(np.conj(b), b) / batch_size
-    G1_si        = kron(np.conj(b), a) / batch_size
-    G1_si_dagger = kron(np.conj(a), b) / batch_size
-    Q_si         = kron(c, a) / batch_size
-    Q_si_dagger  = kron(np.conj(a), np.conj(c)) / batch_size
+    G1_ss        = kron(np.conj(a), a, multiple_devices) / N
+    G1_ii        = kron(np.conj(b), b, multiple_devices) / N
+    G1_si        = kron(np.conj(b), a, multiple_devices) / N
+    G1_si_dagger = kron(np.conj(a), b, multiple_devices) / N
+    Q_si         = kron(c, a, multiple_devices) / N
+    Q_si_dagger  = kron(np.conj(a), np.conj(c), multiple_devices) / N
 
-    return (G1_ii * G1_ss + Q_si_dagger * Q_si + G1_si_dagger * G1_si).real
-
+    return G1_ss, G1_ii, G1_si, G1_si_dagger, Q_si, Q_si_dagger
 
 @jit
-def coincidence_rate_calc_batch(a, b, c, N, G1_ii_p, G1_ss_p, Q_si_dagger_p, Q_si_p, G1_si_dagger_p, G1_si_p):
-    G1_ss        = kron(np.conj(a), a, multiple_devices=False) / N + G1_ss_p
-    G1_ii        = kron(np.conj(b), b, multiple_devices=False) / N + G1_ii_p
-    G1_si        = kron(np.conj(b), a, multiple_devices=False) / N + G1_si_p
-    G1_si_dagger = kron(np.conj(a), b, multiple_devices=False) / N + G1_si_dagger_p
-    Q_si         = kron(c, a, multiple_devices=False) / N + Q_si_p
-    Q_si_dagger  = kron(np.conj(a), np.conj(c), multiple_devices=False) / N + Q_si_dagger_p
-    return G1_ii, G1_ss, Q_si_dagger, Q_si, G1_si_dagger, G1_si
+def projection_matrix_calc(G1_ss, G1_ii, G1_si, G1_si_dagger, Q_si, Q_si_dagger):
+    """
 
+    Parameters
+    ----------
+    G1_ss, G1_ii, G1_si, G1_si_dagger, Q_si, Q_si_dagger: the projective matrices
+    Returns the 2nd order projective matrix
+    -------
 
-def Pss_calc(a, Nx, Ny, M, batch_size):
-    return (kron(np.conj(a), a).real.reshape(Nx**2, Ny**2))[::M + 1, ::M + 1] / batch_size
-
-
-def init_corr_mats(n_coeff):
-    return np.zeros((1, 1, n_coeff, n_coeff), dtype=np.complex64), \
-           np.zeros((1, 1, n_coeff, n_coeff), dtype=np.complex64), \
-           np.zeros((1, 1, n_coeff, n_coeff), dtype=np.complex64), \
-           np.zeros((1, 1, n_coeff, n_coeff), dtype=np.complex64), \
-           np.zeros((1, 1, n_coeff, n_coeff), dtype=np.complex64), \
-           np.zeros((1, 1, n_coeff, n_coeff), dtype=np.complex64)
+    """
+    return (lax.psum(G1_ii, 'device') *
+            lax.psum(G1_ss, 'device') +
+            lax.psum(Q_si_dagger, 'device') *
+            lax.psum(Q_si, 'device') +
+            lax.psum(G1_si_dagger, 'device') *
+            lax.psum(G1_si, 'device')
+            ).real

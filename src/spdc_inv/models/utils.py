@@ -101,7 +101,6 @@ def crystal_prop(
     signal_vac = signal_field.vac * (vacuum_states[:, 0, 0] + 1j * vacuum_states[:, 0, 1]) / np.sqrt(2)
     idler_vac  = idler_field.vac * (vacuum_states[:, 1, 0] + 1j * vacuum_states[:, 1, 1]) / np.sqrt(2)
 
-
     for z in interaction.z:
         # pump beam:
         E_pump = propagate(pump_profile, x, y, pump.k, z) * np.exp(-1j * pump.k * z)

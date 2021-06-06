@@ -1,13 +1,13 @@
 import random
 import os
 import shutil
+import time
 from jax import pmap
 from jax import numpy as np
 from datetime import datetime
 from typing import Tuple, Dict, Any, Optional, List, Union
 from spdc_inv import DATA_DIR
 from spdc_inv import LOGS_DIR
-from spdc_inv import RES_DIR
 from spdc_inv.utils.utils import Beam
 from spdc_inv.utils.defaults import COINCIDENCE_RATE, DENSITY_MATRIX, TOMOGRAPHY_MATRIX
 from spdc_inv.utils.defaults import REAL, IMAG
@@ -32,9 +32,9 @@ def run_experiment(
         keep_best: bool = True,
         n_epochs: int = 500,
         N_train: int = 1000,
-        bs_train: int = 1000,
+        bs_train_device: int = 1000,
         N_inference: int = 1000,
-        bs_inference: int = 1000,
+        bs_inference_device: int = 1000,
         target: str = 'qutrit',
         observable_vec: Tuple[Dict[Any, bool]] = None,
         loss_arr: Tuple[Dict[Any, Optional[Tuple[str, str]]]] = None,
@@ -122,13 +122,15 @@ def run_experiment(
     n_devices = xla_bridge.device_count()
     print(f'Number of GPU devices: {n_devices} \n')
 
-    assert N_train % n_devices == 0, "The number of training examples should be " \
-                                     "divisible by the number of devices"
-    assert N_inference % n_devices == 0, "The number of inference examples should be " \
-                                         "divisible by the number of devices"
+    assert N_train % (bs_train_device * n_devices) == 0, "The number of training examples should be " \
+                                                         "divisible by the number of devices time batch size"
 
-    N_train_device     = int(N_train / n_devices)
-    N_inference_device = int(N_inference / n_devices)
+    assert N_inference % (bs_inference_device * n_devices) == 0, "The number of inference examples should be " \
+                                                                 "divisible by the number of devices time batch size"
+    N_train_device      = int(N_train / n_devices)
+    N_inference_device  = int(N_inference / n_devices)
+    nb_train_device     = int(N_train_device / bs_train_device)
+    nb_inference_device = int(N_inference_device / bs_inference_device)
 
     specs = {
         'experiment name': run_name,
@@ -152,11 +154,6 @@ def run_experiment(
     if os.path.exists(logs_dir):
         shutil.rmtree(logs_dir)
     os.makedirs(logs_dir, exist_ok=True)
-
-    specs_file = os.path.join(logs_dir, 'data_specs.txt')
-    with open(specs_file, 'w') as f:
-        for k, v in specs.items():
-            f.write(f"{k}: {str(v)}\n")
 
     key, interaction_key = jax.random.split(key)
     interaction = Interaction(
@@ -258,11 +255,13 @@ def run_experiment(
         key=key,
         n_epochs=n_epochs,
         N_train=N_train,
-        bs_train=bs_train,
+        bs_train_device=bs_train_device,
         N_inference=N_inference,
-        bs_inference=bs_inference,
+        bs_inference_device=bs_inference_device,
         N_train_device=N_train_device,
         N_inference_device=N_inference_device,
+        nb_train_device=nb_train_device,
+        nb_inference_device=nb_inference_device,
         learn_pump_coeffs=learn_pump_coeffs,
         learn_pump_waists=learn_pump_waists,
         learn_crystal_coeffs=learn_crystal_coeffs,
@@ -328,7 +327,10 @@ def run_experiment(
                                                         DATA_DIR, 'targets', trainer.tomography_matrix_loss.target_str
                                                     )))(np.arange(n_devices))
 
+        start_time = time.time()
         fit_results = trainer.fit()
+        print("training is done after: %s seconds" % (time.time() - start_time))
+
         save_training_statistics(
             logs_dir,
             fit_results,
@@ -336,15 +338,13 @@ def run_experiment(
             trainer.model_parameters,
         )
 
+        start_time = time.time()
         observables = trainer.inference()
-
-        results_dir = os.path.join(RES_DIR, run_name)
-        if os.path.exists(results_dir):
-            shutil.rmtree(results_dir)
-        os.makedirs(results_dir, exist_ok=True)
+        total_time = (time.time() - start_time)
+        print("inference is done after: %s seconds" % total_time)
 
         save_results(
-            results_dir,
+            run_name,
             observable_vec,
             observables,
             projection_coincidence_rate,
@@ -354,20 +354,13 @@ def run_experiment(
         )
 
     else:
+        start_time = time.time()
         observables = trainer.inference()
-
-        results_dir = os.path.join(RES_DIR, run_name)
-        if os.path.exists(results_dir):
-            shutil.rmtree(results_dir)
-        os.makedirs(results_dir, exist_ok=True)
-
-        specs_file = os.path.join(results_dir, 'data_specs.txt')
-        with open(specs_file, 'w') as f:
-            for k, v in specs.items():
-                f.write(f"{k}: {str(v)}\n")
+        total_time = (time.time() - start_time)
+        print("inference is done after: %s seconds" % total_time)
 
         save_results(
-            results_dir,
+            run_name,
             observable_vec,
             observables,
             projection_coincidence_rate,
@@ -376,26 +369,32 @@ def run_experiment(
             Idler,
         )
 
+    specs_file = os.path.join(logs_dir, 'data_specs.txt')
+    with open(specs_file, 'w') as f:
+        f.write(f"running time: {total_time} sec\n")
+        for k, v in specs.items():
+            f.write(f"{k}: {str(v)}\n")
+
 
 if __name__ == "__main__":
 
     learning_params = {
-        'learn_mode': True,
+        'learn_mode': False,
         'learn_pump_coeffs': True,
         'learn_pump_waists':  True,
         'learn_crystal_coeffs':  True,
         'learn_crystal_waists':  True,
         'keep_best':  True,
-        'n_epochs':  500,
-        'N_train':  1000,
-        'bs_train':  1000,
-        'N_inference':  1000,
-        'bs_inference':  1000,
+        'n_epochs':  100,
+        'N_train':  5000,
+        'bs_train_device':  500,
+        'N_inference':  5000,
+        'bs_inference_device':  500,
         'target': 'qutrit',
         'observable_vec': {
             COINCIDENCE_RATE: True,
             DENSITY_MATRIX: False,
-            TOMOGRAPHY_MATRIX: False
+            TOMOGRAPHY_MATRIX: True
         }
     }
 
@@ -493,7 +492,6 @@ if __name__ == "__main__":
         'tomography_relative_phase': [0, np.pi, 3 * (np.pi / 2), np.pi / 2],
         'tomography_quantum_state': 'qubit',
     }
-
 
     run_experiment(
         run_name='test',

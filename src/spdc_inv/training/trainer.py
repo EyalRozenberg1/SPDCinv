@@ -24,11 +24,13 @@ class BaseTrainer(ABC):
             key: np.array,
             n_epochs: int,
             N_train: int,
-            bs_train: int,
+            bs_train_device: int,
             N_inference: int,
-            bs_inference: int,
+            bs_inference_device: int,
             N_train_device: int,
             N_inference_device: int,
+            nb_train_device: int,
+            nb_inference_device: int,
             learn_pump_coeffs: bool,
             learn_pump_waists: bool,
             learn_crystal_coeffs: bool,
@@ -44,24 +46,26 @@ class BaseTrainer(ABC):
             observable_vec: Optional[Tuple[Dict[Any, bool]]],
     ):
 
-        self.key          = key
-        self.n_devices    = n_devices
-        self.n_epochs   = n_epochs
-        self.N_train      = N_train
-        self.bs_train     = bs_train
-        self.N_inference  = N_inference
-        self.bs_inference = bs_inference
-        self.N_train_device     = N_train_device
-        self.N_inference_device = N_inference_device
-        self.keep_best          = keep_best
-        self.delta_k            = pump.k - signal.k - idler.k  # phase mismatch
-        self.poling_period      = interaction.dk_offset * self.delta_k
-        self.Nx = interaction.Nx
-        self.Ny = interaction.Ny
+        self.key                 = key
+        self.n_devices           = n_devices
+        self.n_epochs            = n_epochs
+        self.N_train             = N_train
+        self.bs_train_device     = bs_train_device
+        self.N_inference         = N_inference
+        self.bs_inference_device = bs_inference_device
+        self.N_train_device      = N_train_device
+        self.N_inference_device  = N_inference_device
+        self.nb_train_device     = nb_train_device
+        self.nb_inference_device = nb_inference_device
+        self.keep_best           = keep_best
+        self.delta_k             = pump.k - signal.k - idler.k  # phase mismatch
+        self.poling_period       = interaction.dk_offset * self.delta_k
+        self.Nx     = interaction.Nx
+        self.Ny     = interaction.Ny
         self.DeltaZ = - interaction.maxZ / 2  # DeltaZ: longitudinal middle of the crystal (with negative sign).
                                               # To propagate generated fields back to the middle of the crystal
 
-        self.projection_coincidence_rate = projection_coincidence_rate
+        self.projection_coincidence_rate  = projection_coincidence_rate
         self.projection_tomography_matrix = projection_tomography_matrix
 
         assert list(observable_vec.keys()) == [COINCIDENCE_RATE,
@@ -151,25 +155,25 @@ class BaseTrainer(ABC):
                                tomography_matrix_observable=self.tomography_matrix_observable,)
 
     def inference(self):
-        self.model.learn_mode = False
-        self.model.N          = self.N_inference
-        self.model.N_device   = self.N_inference_device
-        self.model.bs         = self.bs_inference
+        self.model.learn_mode  = False
+        self.model.N           = self.N_inference
+        self.model.N_device    = self.N_inference_device
+        self.model.nb_device   = self.nb_inference_device
+        self.model.bs          = self.bs_inference_device
 
         # seed vacuum samples for each gpu
         self.key, subkey = random.split(self.key)
         keys = random.split(subkey, self.n_devices)
         observables = pmap(self.model.forward, axis_name='device')(self.model_parameters, keys)
-
         return observables
 
     def fit(self):
         self.model.learn_mode = True
         self.model.N          = self.N_train
         self.model.N_device   = self.N_train_device
-        self.model.bs         = self.bs_train
+        self.model.nb_device  = self.nb_train_device
+        self.model.bs         = self.bs_train_device
 
-        start_time = time.time()
         opt_state = self.opt_init(self.model_parameters)
 
         loss_trn, loss_vld, best_loss = [], [], None
@@ -179,10 +183,10 @@ class BaseTrainer(ABC):
             start_time_epoch = time.time()
             print(f'running epoch {epoch}/{self.n_epochs}')
 
-            idx  = np.array([epoch]).repeat(self.n_devices)
+            idx = np.array([epoch]).repeat(self.n_devices)
             self.key, subkey = random.split(self.key)
             training_subkey, validation_subkey = random.split(subkey)
-            training_subkeys   = random.split(training_subkey, self.n_devices)
+            training_subkeys = random.split(training_subkey, self.n_devices)
             validation_subkeys = random.split(validation_subkey, self.n_devices)
 
             training_loss, validation_loss, opt_state = self.update(opt_state,
@@ -242,7 +246,6 @@ class BaseTrainer(ABC):
                 model_parameters = self.get_params(opt_state)
                 self.model_parameters = model_parameters
 
-        print("training is done after: %s seconds" % (time.time() - start_time))
         return loss_trn, loss_vld, best_loss
 
     @partial(pmap, axis_name='device', static_broadcasted_argnums=(0,))

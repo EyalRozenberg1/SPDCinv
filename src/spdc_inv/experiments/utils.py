@@ -187,7 +187,6 @@ class Projection_tomography_matrix(ABC):
         else:
             self.projection_n_state2 = 15
 
-
         refractive_index = ctype(wavelength * 1e6, temperature, polarization)
         [x, y] = np.meshgrid(crystal_x, crystal_y)
 

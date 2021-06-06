@@ -84,14 +84,14 @@ class Loss(ABC):
             for loss_func, loss_weight in zip(self.loss_stack, self.loss_weights):
                 loss = loss + loss_weight * loss_func(observable, target)
 
-            for obs_func, weight, elements in zip(self.reg_obs_stack, self.reg_observable_w, self.reg_observable_elements):
+            for obs_func, weight, elements in zip(self.reg_obs_stack,
+                                                  self.reg_observable_w, self.reg_observable_elements):
                 loss = loss + weight * obs_func(observable, elements)
 
         if self.l2_reg > 0.:
             loss = loss + self.l2_reg * self.l2_regularization(model_parameters)
 
         return loss
-
 
     def LOSS_stack(self):
 
@@ -215,10 +215,7 @@ class Loss(ABC):
         -------
         """
 
-        td = 0.5 * np.trace(
-            np.sqrt(
-                (rho - target).conj().T @ (rho - target)
-            ))
+        td = 0.5 * np.linalg.norm(rho - target, ord='nuc')
 
         return td
 

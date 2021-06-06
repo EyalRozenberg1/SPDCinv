@@ -1,12 +1,12 @@
-from spdc_inv.utils.utils import h_bar, eps0, c
 from spdc_inv.utils.defaults import COINCIDENCE_RATE, DENSITY_MATRIX, TOMOGRAPHY_MATRIX
+from spdc_inv.utils.utils import G1_Normalization
+from spdc_inv import RES_DIR
+from jax import numpy as np
 
 import os
-from jax import numpy as np
+import shutil
 import numpy as onp
 import matplotlib.pyplot as plt
-
-G1_Normalization = lambda w: h_bar * w / (2 * eps0 * c)
 
 
 def save_training_statistics(
@@ -72,7 +72,7 @@ def save_training_statistics(
 
 
 def save_results(
-        results_dir,
+        run_name,
         observable_vec,
         observables,
         projection_coincidence_rate,
@@ -80,6 +80,11 @@ def save_results(
         Signal,
         Idler,
 ):
+    results_dir = os.path.join(RES_DIR, run_name)
+    if os.path.exists(results_dir):
+        shutil.rmtree(results_dir)
+    os.makedirs(results_dir, exist_ok=True)
+
     (coincidence_rate, density_matrix, tomography_matrix) = observables
 
     if observable_vec[COINCIDENCE_RATE]:

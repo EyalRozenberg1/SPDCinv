@@ -557,14 +557,11 @@ class Crystal_hologram(ABC):
             if self.crystal_basis.lower() == 'ft':  # Fourier-Taylor
                 self.crystal_profile = self._profile_fourier_taylor(crystal_coeffs_real, crystal_coeffs_imag, r_scale)
 
-
             elif self.crystal_basis.lower() == 'fb':  # Fourier-Bessel
                 self.crystal_profile = self._profile_fourier_bessel(crystal_coeffs_real, crystal_coeffs_imag)
 
-
             elif self.crystal_basis.lower() == 'lg':  # Laguerre-Gauss
                 self.crystal_profile = self._profile_laguerre_gauss(crystal_coeffs_real, crystal_coeffs_imag, r_scale)
-
 
             elif self.crystal_basis.lower() == 'hg':  # Hermite-Gauss
                 self.crystal_profile = self._profile_hermite_gauss(crystal_coeffs_real, crystal_coeffs_imag, r_scale)
@@ -670,15 +667,3 @@ def fix_power(
     output = A * np.sqrt(power) / np.sqrt(Power2D(A, n, dx, dy))
     return output
 
-
-
-
-
-'''
-TRACE_IT takes an M x M x M x M array representing a Kronecker product, 
-and traces over 2 of its dimensions
-'''
-def trace_it(G, dim1, dim2):
-    C = np.sum(G, axis=dim1)  # trace over dimesnion dim1
-    C = np.sum(C, axis=dim2 - 1)  # trace over dimesnion dim2
-    return C
