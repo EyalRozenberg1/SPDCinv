@@ -65,23 +65,39 @@ class Interaction(ABC):
                     Can be: LG (Laguerre-Gauss) / HG (Hermite-Gauss)
         pump_max_mode1: Maximum value of first mode of the 2D pump basis
         pump_max_mode2: Maximum value of second mode of the 2D pump basis
-        initial_pump_coefficient: initial distribution of coefficient-amplitudes for pump basis function
+        initial_pump_coefficient: defines the initial distribution of coefficient-amplitudes for pump basis function
+                                  can be: uniform- uniform distribution
+                                          random- uniform distribution
+                                          custom- as defined at custom_pump_coefficient
+                                          load- will be loaded from np.arrays defined under path: pump_coefficient_path
+                                                with names: PumpCoeffs_real.npy, PumpCoeffs_imag.npy
         pump_coefficient_path: path for loading waists for pump basis function
         custom_pump_coefficient: (dictionary) used only if initial_pump_coefficient=='custom'
                                  {'real': {indexes:coeffs}, 'imag': {indexes:coeffs}}.
-        initial_pump_waist: initial values of waists for pump basis function
+        initial_pump_waist: defines the initial values of waists for pump basis function
+                            can be: waist_pump0- will be set according to waist_pump0
+                                    load- will be loaded from np.arrays defined under path: pump_waists_path
+                                    with name: PumpWaistCoeffs.npy
         pump_waists_path: path for loading coefficient-amplitudes for pump basis function
         crystal_basis: Crystal's construction basis method
                        Can be:
                        None / FT (Fourier-Taylor) / FB (Fourier-Bessel) / LG (Laguerre-Gauss) / HG (Hermite-Gauss)
-
+                       - if None, the crystal will contain NO hologram
         crystal_max_mode1: Maximum value of first mode of the 2D crystal basis
         crystal_max_mode2: Maximum value of second mode of the 2D crystal basis
-        initial_crystal_coefficient: initial distribution of coefficient-amplitudes for crystal basis function
-        custom_crystal_coefficient: (dictionary) used only if initial_pump_coefficient=='custom'
+        initial_crystal_coefficient: defines the initial distribution of coefficient-amplitudes for crystal basis function
+                                     can be: uniform- uniform distribution
+                                      random- uniform distribution
+                                      custom- as defined at custom_crystal_coefficient
+                                      load- will be loaded from np.arrays defined under path: crystal_coefficient_path
+                                            with names: CrystalCoeffs_real.npy, CrystalCoeffs_imag.npy
+        crystal_coefficient_path: path for loading coefficient-amplitudes for crystal basis function
+        custom_crystal_coefficient: (dictionary) used only if initial_crystal_coefficient=='custom'
                                  {'real': {indexes:coeffs}, 'imag': {indexes:coeffs}}.
-        crystal_coefficient_path: path for loading coefficient-amplitudes for pump basis function
-        initial_crystal_waist: initial values of waists for crystal basis function
+        initial_crystal_waist: defines the initial values of waists for crystal basis function
+                               can be: r_scale0- will be set according to r_scale0
+                                       load- will be loaded from np.arrays defined under path: crystal_waists_path
+                                             with name: CrystalWaistCoeffs.npy
         crystal_waists_path: path for loading waists for crystal basis function
         lam_pump: Pump wavelength
         crystal_str: Crystal type. Can be: KTP or MgCLN
@@ -217,11 +233,6 @@ class Interaction(ABC):
             coeffs_real = random.normal(rand_real, (self.pump_n_modes,))
             coeffs_imag = random.normal(rand_imag, (self.pump_n_modes,))
 
-        elif self.initial_pump_coefficient == "LG00":
-            coeffs_real = np.zeros(self.pump_n_modes, dtype=np.float32)
-            coeffs_imag = np.zeros(self.pump_n_modes, dtype=np.float32)
-            coeffs_real = index_update(coeffs_real, 0 * (2 * self.pump_max_mode2 + 1) + self.pump_max_mode2, 1)
-
         elif self.initial_pump_coefficient == "custom":
             assert self.custom_pump_coefficient, 'for custom method, pump basis coefficients and ' \
                                                  'indexes must be selected'
@@ -289,11 +300,6 @@ class Interaction(ABC):
             rand_real, rand_imag = random.split(crystal_coeff_key)
             coeffs_real = random.normal(rand_real, (self.crystal_n_modes,))
             coeffs_imag = random.normal(rand_imag, (self.crystal_n_modes,))
-
-        elif self.initial_crystal_coefficient == "LG00":
-            coeffs_real = np.zeros(self.crystal_n_modes, dtype=np.float32)
-            coeffs_imag = np.zeros(self.crystal_n_modes, dtype=np.float32)
-            coeffs_real = index_update(coeffs_real, 0 * (2 * self.crystal_max_mode2 + 1) + self.crystal_max_mode2, 1)
 
         elif self.initial_crystal_coefficient == "custom":
             assert self.custom_crystal_coefficient, 'for custom method, crystal basis coefficients and ' \

@@ -24,6 +24,7 @@ def run_experiment(
         seed: int = 42,
         CUDA_VISIBLE_DEVICES: str = None,
         JAX_ENABLE_X64: str = 'True',
+        minimal_GPU_memory: bool = False,
         learn_mode: bool = False,
         learn_pump_coeffs: bool = True,
         learn_pump_waists: bool = True,
@@ -52,7 +53,7 @@ def run_experiment(
         pump_basis: str = 'LG',
         pump_max_mode1: int = 5,
         pump_max_mode2: int = 1,
-        initial_pump_coefficient: str = 'LG00',
+        initial_pump_coefficient: str = 'random',
         custom_pump_coefficient: Dict[str, Dict[int, int]] = None,
         pump_coefficient_path: str = None,
         initial_pump_waist: str = 'waist_pump0',
@@ -60,7 +61,7 @@ def run_experiment(
         crystal_basis: str = 'LG',
         crystal_max_mode1: int = 5,
         crystal_max_mode2: int = 2,
-        initial_crystal_coefficient: str = 'LG00',
+        initial_crystal_coefficient: str = 'random',
         custom_crystal_coefficient: Dict[str, Dict[int, int]] = None,
         crystal_coefficient_path: str = None,
         initial_crystal_waist: str = 'r_scale0',
@@ -102,6 +103,158 @@ def run_experiment(
         tomography_quantum_state: str = 'qubit'
 
 ):
+    """
+    This function is the main function for running SPDC project
+
+    Parameters
+    ----------
+    run_name: selected name (will be used for naming the folder)
+    seed: initial seed for random functions
+    CUDA_VISIBLE_DEVICES: visible gpu devices to be used
+    JAX_ENABLE_X64: if True, use double-precision numbers (enabling 64bit mode)
+    minimal_GPU_memory: This makes JAX allocate exactly what is needed on demand, and deallocate memory that is no
+                        longer needed (note that this is the only configuration that will deallocate GPU memory,
+                        instead of reusing it). This is very slow, so is not recommended for general use,
+                        but may be useful for running with the minimal possible GPU memory footprint
+                        or debugging OOM failures.
+
+    learn_mode: if True run learning method. False, inference.
+    learn_pump_coeffs: if True, pump coefficients are learned in learning mode
+    learn_pump_waists: if True, pump coefficients waists are learned in learning mode
+    learn_crystal_coeffs: if True, crystal coefficients are learned in learning mode
+    learn_crystal_waists: if True, crystal coefficients waists are learned in learning mode
+    keep_best: if True, best learned result are kept
+    n_epochs: number of epochs for learning
+    N_train: size of vacuum states in training method
+    bs_train_device: size of vacuum states for each batch on single device, in training method
+    N_inference: size of vacuum states in inference method
+    bs_inference_device: size of vacuum states for each batch on single device, in inference method
+    target: name of target folder with observables, for training (should be placed under: SPDCinv/data/targets/)
+    observable_vec: if an observable in the dictionary is True,
+                        the method will learn/infer the observable along the process
+    loss_arr: if an observable in observable_vec is True, the following sequence of loss functions are used.
+              The target observables in the 'target' folder are used.
+              optional: l1, l2, kl, bhattacharyya, trace_distance, None
+              if None (for any observable), the the loss using target observable will be ignored, while the rest of the
+              loss options, i.e reg_observable, can be still applied.
+    loss_weights: the sequence loss_arr is weighted by loss_weights (for each observable)
+    reg_observable: if an observable in observable_vec is True, the following sequence
+                    of regularization functions are used; applying regularization directly on observable elements.
+                    optional: sparsify: he method will penalize all other elements in tensor observable
+                              equalize: the method will penalize if elements in observable doesn't have equal amplitude
+                        * elements are defined under: reg_observable_elements
+    reg_observable_w: the sequence reg_observable is weighted by reg_observable_w (for each observable)
+    reg_observable_elements: the elements for the sequence reg_observable are defined in reg_observable_elements
+                            (for each observable)
+
+    l2_reg: l2 regularization coefficient for model leaned parameters (to reduce over-fitting).
+            if 0,it will be ignored
+    optimizer: optimized method. can be: adam
+                                         sgd
+                                         adagrad
+                                         adamax
+                                         momentum
+                                         nesterov
+                                         rmsprop
+                                         rmsprop_momentum
+    exp_decay_lr: the exponential decay rate for step size. calculated for each step i as:
+                   step_size * decay_rate ** (i / decay_steps)
+                   if False, this will be ignored
+    step_size: learning step size
+    decay_steps: decay steps for exp_decay_lr
+    decay_rate: decay rate for exp_decay_lr
+
+    pump_basis: Pump's construction basis method
+                Can be: LG (Laguerre-Gauss) / HG (Hermite-Gauss)
+    pump_max_mode1: Maximum value of first mode of the 2D pump basis
+    pump_max_mode2: Maximum value of second mode of the 2D pump basis
+    initial_pump_coefficient: defines the initial distribution of coefficient-amplitudes for pump basis function
+                              can be: uniform- uniform distribution
+                                      random- uniform distribution
+                                      custom- as defined at custom_pump_coefficient
+                                      load- will be loaded from np.arrays defined under path: pump_coefficient_path
+                                            with names: PumpCoeffs_real.npy, PumpCoeffs_imag.npy
+    pump_coefficient_path: path for loading waists for pump basis function
+    custom_pump_coefficient: (dictionary) used only if initial_pump_coefficient=='custom'
+                             {'real': {indexes:coeffs}, 'imag': {indexes:coeffs}}.
+    initial_pump_waist: defines the initial values of waists for pump basis function
+                        can be: waist_pump0- will be set according to waist_pump0
+                                load- will be loaded from np.arrays defined under path: pump_waists_path
+                                with name: PumpWaistCoeffs.npy
+    pump_waists_path: path for loading coefficient-amplitudes for pump basis function
+    crystal_basis: Crystal's construction basis method
+                   Can be:
+                   None / FT (Fourier-Taylor) / FB (Fourier-Bessel) / LG (Laguerre-Gauss) / HG (Hermite-Gauss)
+                   - if None, the crystal will contain NO hologram
+    crystal_max_mode1: Maximum value of first mode of the 2D crystal basis
+    crystal_max_mode2: Maximum value of second mode of the 2D crystal basis
+    initial_crystal_coefficient: defines the initial distribution of coefficient-amplitudes for crystal basis function
+                                 can be: uniform- uniform distribution
+                                  random- uniform distribution
+                                  custom- as defined at custom_crystal_coefficient
+                                  load- will be loaded from np.arrays defined under path: crystal_coefficient_path
+                                        with names: CrystalCoeffs_real.npy, CrystalCoeffs_imag.npy
+    crystal_coefficient_path: path for loading coefficient-amplitudes for crystal basis function
+    custom_crystal_coefficient: (dictionary) used only if initial_crystal_coefficient=='custom'
+                             {'real': {indexes:coeffs}, 'imag': {indexes:coeffs}}.
+    initial_crystal_waist: defines the initial values of waists for crystal basis function
+                           can be: r_scale0- will be set according to r_scale0
+                                   load- will be loaded from np.arrays defined under path: crystal_waists_path
+                                         with name: CrystalWaistCoeffs.npy
+    crystal_waists_path: path for loading waists for crystal basis function
+    lam_pump: Pump wavelength
+    crystal_str: Crystal type. Can be: KTP or MgCLN
+    power_pump: Pump power [watt]
+    waist_pump0: waists of the pump basis functions.
+                 -- If None, waist_pump0 = sqrt(maxZ / self.pump_k)
+    r_scale0: effective waists of the crystal basis functions.
+              -- If None, r_scale0 = waist_pump0
+    dx: transverse resolution in x [m]
+    dy: transverse resolution in y [m]
+    dz: longitudinal resolution in z [m]
+    maxX: Transverse cross-sectional size from the center of the crystal in x [m]
+    maxY: Transverse cross-sectional size from the center of the crystal in y [m]
+    maxZ: Crystal's length in z [m]
+    R: distance to far-field screen [m]
+    Temperature: crystal's temperature [Celsius Degrees]
+    pump_polarization: Polarization of the pump beam
+    signal_polarization: Polarization of the signal beam
+    idler_polarization: Polarization of the idler beam
+    dk_offset: delta_k offset
+    power_signal: Signal power [watt]
+    power_idler: Idler power [watt]
+
+    coincidence_projection_basis: represents the projective basis for calculating the coincidence rate observable
+                                  of the interaction. Can be: LG (Laguerre-Gauss) / HG (Hermite-Gauss)
+    coincidence_projection_max_mode1: Maximum value of first mode of the 2D projection basis for coincidence rate
+    coincidence_projection_max_mode2: Maximum value of second mode of the 2D projection basis for coincidence rate
+    coincidence_projection_waist: waists of the projection basis functions of coincidence rate.
+                                  if None, np.sqrt(2) * waist_pump0 is used
+    coincidence_projection_wavelength: wavelength for generating projection basis of coincidence rate.
+                                       if None, the signal wavelength is used
+    coincidence_projection_polarization: polarization for calculating effective refractive index
+    coincidence_projection_z: projection longitudinal position
+    tomography_projection_basis: represents the projective basis for calculating the tomography matrix & density matrix
+                                    observables of the interaction. Can be: LG (Laguerre-Gauss) / HG (Hermite-Gauss)
+    tomography_projection_max_mode1: Maximum value of first mode of the 2D projection basis for tomography matrix &
+                                        density matrix
+    tomography_projection_max_mode2: Maximum value of second mode of the 2D projection basis for tomography matrix &
+                                        density matrix
+    tomography_projection_waist: waists of the projection basis functions of tomography matrix & density matrix
+                                  if None, np.sqrt(2) * waist_pump0 is used
+    tomography_projection_wavelength: wavelength for generating projection basis of tomography matrix & density matrix.
+                                       if None, the signal wavelength is used
+    tomography_projection_polarization: polarization for calculating effective refractive index
+    tomography_projection_z: projection longitudinal position
+    tomography_relative_phase: The relative phase between the mutually unbiased bases (MUBs) states
+   tomography_quantum_state: the current quantum state we calculate it tomography matrix.
+                               currently we support: qubit/qutrit
+    tau: coincidence window [nano sec]
+    -------
+
+    """
+    run_name = f'l_{run_name}_{str(datetime.today()).split()[0]}' if \
+        learn_mode else f'i_{run_name}_{str(datetime.today()).split()[0]}'
 
     now = datetime.now()
     date_and_time = now.strftime("%d/%m/%Y %H:%M:%S")
@@ -111,6 +264,9 @@ def run_experiment(
         os.environ["CUDA_VISIBLE_DEVICES"] = CUDA_VISIBLE_DEVICES
     if JAX_ENABLE_X64:
         os.environ["JAX_ENABLE_X64"] = JAX_ENABLE_X64
+
+    if minimal_GPU_memory:
+        os.environ["XLA_PYTHON_CLIENT_ALLOCATOR"] = 'platform'
 
     import jax
     from jax.lib import xla_bridge
@@ -424,7 +580,6 @@ if __name__ == "__main__":
             DENSITY_MATRIX: None,
             TOMOGRAPHY_MATRIX: None
         },
-        'tau': 1e-9,
     }
 
     optimizer_params = {
@@ -448,7 +603,7 @@ if __name__ == "__main__":
         'crystal_basis': 'LG',
         'crystal_max_mode1': 2,
         'crystal_max_mode2': 3,
-        'initial_crystal_coefficient': 'LG00',
+        'initial_crystal_coefficient': 'custom',
         'custom_crystal_coefficient': {REAL: {-1: 1, 0: 1, 1: 1}, IMAG: {-1: 1, 0: 1, 1: 1}},
         'crystal_coefficient_path': None,
         'initial_crystal_waist': 'r_scale0',
@@ -491,12 +646,14 @@ if __name__ == "__main__":
         'tomography_projection_z': 0.,
         'tomography_relative_phase': [0, np.pi, 3 * (np.pi / 2), np.pi / 2],
         'tomography_quantum_state': 'qubit',
+        'tau': 1e-9,
     }
 
     run_experiment(
         run_name='test',
         seed=42,
         JAX_ENABLE_X64='True',
+        minimal_GPU_memory=False,
         CUDA_VISIBLE_DEVICES='0, 1',
         **learning_params,
         **loss_params,

@@ -107,7 +107,7 @@ class Projection_coincidence_rate(ABC):
 class Projection_tomography_matrix(ABC):
     """
     A class that represents the projective basis for
-    calculating the density matrix observable of the interaction.
+    calculating the tomography matrix & density matrix observable of the interaction.
     """
 
     def __init__(
