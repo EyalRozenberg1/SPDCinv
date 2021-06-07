@@ -130,6 +130,8 @@ def run_experiment(
     N_inference: size of vacuum states in inference method
     bs_inference_device: size of vacuum states for each batch on single device, in inference method
     target: name of target folder with observables, for training (should be placed under: SPDCinv/data/targets/)
+            For any observable, the files in the folder must contain one of the corresponding names:
+                    'coincidence_rate.npy', 'density_matrix.npy' 'tomography_matrix.npy'
     observable_vec: if an observable in the dictionary is True,
                         the method will learn/infer the observable along the process
     loss_arr: if an observable in observable_vec is True, the following sequence of loss functions are used.
@@ -435,7 +437,7 @@ def run_experiment(
 
     if learn_mode:
         trainer.coincidence_rate_loss = Loss(observable_as_target=observable_vec[COINCIDENCE_RATE],
-                                             target=os.path.join(target, 'coincidence_rate.npy'),
+                                             target=os.path.join(target, f'{COINCIDENCE_RATE}.npy'),
                                              loss_arr=loss_arr[COINCIDENCE_RATE],
                                              loss_weights=loss_weights[COINCIDENCE_RATE],
                                              reg_observable=reg_observable[COINCIDENCE_RATE],
@@ -444,7 +446,7 @@ def run_experiment(
                                              l2_reg=l2_reg)
 
         trainer.density_matrix_loss = Loss(observable_as_target=observable_vec[DENSITY_MATRIX],
-                                           target=os.path.join(target, 'density_matrix.npy'),
+                                           target=os.path.join(target, f'{DENSITY_MATRIX}.npy'),
                                            loss_arr=loss_arr[DENSITY_MATRIX],
                                            loss_weights=loss_weights[DENSITY_MATRIX],
                                            reg_observable=reg_observable[DENSITY_MATRIX],
@@ -452,7 +454,7 @@ def run_experiment(
                                            reg_observable_elements=reg_observable_elements[DENSITY_MATRIX],)
 
         trainer.tomography_matrix_loss = Loss(observable_as_target=observable_vec[TOMOGRAPHY_MATRIX],
-                                           target=os.path.join(target, 'tomography_matrix.npy'),
+                                           target=os.path.join(target, f'{TOMOGRAPHY_MATRIX}.npy'),
                                            loss_arr=loss_arr[TOMOGRAPHY_MATRIX],
                                            loss_weights=loss_weights[TOMOGRAPHY_MATRIX],
                                            reg_observable=reg_observable[TOMOGRAPHY_MATRIX],
