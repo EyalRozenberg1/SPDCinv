@@ -36,17 +36,18 @@ def save_training_statistics(
         )
     )
 
-    pump = open(os.path.join(logs_dir, 'crystal.txt'), 'w')
-    pump.write(
-        type_coeffs_to_txt(
-            interaction.crystal_basis,
-            interaction.crystal_max_mode1,
-            interaction.crystal_max_mode2,
-            crystal_coeffs_real[0],
-            crystal_coeffs_imag[0],
-            r_scale[0],
+    if interaction.crystal_basis:
+        crystal = open(os.path.join(logs_dir, 'crystal.txt'), 'w')
+        crystal.write(
+            type_coeffs_to_txt(
+                interaction.crystal_basis,
+                interaction.crystal_max_mode1,
+                interaction.crystal_max_mode2,
+                crystal_coeffs_real[0],
+                crystal_coeffs_imag[0],
+                r_scale[0],
+            )
         )
-    )
 
     # print loss
     plt.plot(loss_trn, 'r', label='training')

@@ -280,8 +280,9 @@ def run_experiment(
     n_devices = xla_bridge.device_count()
     print(f'Number of GPU devices: {n_devices} \n')
 
-    assert N_train % (bs_train_device * n_devices) == 0, "The number of training examples should be " \
-                                                         "divisible by the number of devices time batch size"
+    if learn_mode:
+        assert N_train % (bs_train_device * n_devices) == 0, "The number of training examples should be " \
+                                                             "divisible by the number of devices time batch size"
 
     assert N_inference % (bs_inference_device * n_devices) == 0, "The number of inference examples should be " \
                                                                  "divisible by the number of devices time batch size"
@@ -435,6 +436,7 @@ def run_experiment(
         observable_vec=observable_vec,
     )
 
+    training_total_time = None
     if learn_mode:
         trainer.coincidence_rate_loss = Loss(observable_as_target=observable_vec[COINCIDENCE_RATE],
                                              target=os.path.join(target, f'{COINCIDENCE_RATE}.npy'),
@@ -487,7 +489,8 @@ def run_experiment(
 
         start_time = time.time()
         fit_results = trainer.fit()
-        print("training is done after: %s seconds" % (time.time() - start_time))
+        training_total_time = (time.time() - start_time)
+        print("training is done after: %s seconds" % training_total_time)
 
         save_training_statistics(
             logs_dir,
@@ -498,8 +501,8 @@ def run_experiment(
 
         start_time = time.time()
         observables = trainer.inference()
-        total_time = (time.time() - start_time)
-        print("inference is done after: %s seconds" % total_time)
+        inference_total_time = (time.time() - start_time)
+        print("inference is done after: %s seconds" % inference_total_time)
 
         save_results(
             run_name,
@@ -514,8 +517,8 @@ def run_experiment(
     else:
         start_time = time.time()
         observables = trainer.inference()
-        total_time = (time.time() - start_time)
-        print("inference is done after: %s seconds" % total_time)
+        inference_total_time = (time.time() - start_time)
+        print("inference is done after: %s seconds" % inference_total_time)
 
         save_results(
             run_name,
@@ -529,7 +532,9 @@ def run_experiment(
 
     specs_file = os.path.join(logs_dir, 'data_specs.txt')
     with open(specs_file, 'w') as f:
-        f.write(f"running time: {total_time} sec\n")
+        if learn_mode:
+            f.write(f"training running time: {training_total_time} sec\n")
+        f.write(f"inference running time: {inference_total_time} sec\n")
         for k, v in specs.items():
             f.write(f"{k}: {str(v)}\n")
 
