@@ -64,7 +64,7 @@ class Loss(ABC):
         self.l2_reg = l2_reg
 
         self.target_str = None
-        if observable_as_target:
+        if observable_as_target and loss_arr is not None:
             self.target_str = target
 
         self.loss_stack = self.LOSS_stack()
