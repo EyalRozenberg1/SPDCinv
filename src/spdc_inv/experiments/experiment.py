@@ -542,13 +542,13 @@ def run_experiment(
 if __name__ == "__main__":
 
     learning_params = {
-        'learn_mode': False,
+        'learn_mode': True,
         'learn_pump_coeffs': True,
         'learn_pump_waists':  True,
-        'learn_crystal_coeffs':  True,
-        'learn_crystal_waists':  True,
+        'learn_crystal_coeffs':  False,
+        'learn_crystal_waists':  False,
         'keep_best':  True,
-        'n_epochs':  100,
+        'n_epochs':  555,
         'N_train':  5000,
         'bs_train_device':  500,
         'N_inference':  5000,
@@ -557,13 +557,13 @@ if __name__ == "__main__":
         'observable_vec': {
             COINCIDENCE_RATE: True,
             DENSITY_MATRIX: False,
-            TOMOGRAPHY_MATRIX: True
+            TOMOGRAPHY_MATRIX: False
         }
     }
 
     loss_params = {
         'loss_arr': {
-            COINCIDENCE_RATE: ('l1', 'l2'),
+            COINCIDENCE_RATE: None,
             DENSITY_MATRIX: None,
             TOMOGRAPHY_MATRIX: None
         },
@@ -583,7 +583,7 @@ if __name__ == "__main__":
             TOMOGRAPHY_MATRIX: None
         },
         'reg_observable_elements': {
-            COINCIDENCE_RATE: ([20, 30, 40, 50, 60], [20, 30, 40, 50, 60]),
+            COINCIDENCE_RATE: ([1, 10, 12, 21], [1, 10, 12, 21]),
             DENSITY_MATRIX: None,
             TOMOGRAPHY_MATRIX: None
         },
@@ -599,15 +599,15 @@ if __name__ == "__main__":
     }
 
     interaction_params = {
-        'pump_basis': 'LG',
-        'pump_max_mode1': 2,
-        'pump_max_mode2': 4,
+        'pump_basis': 'HG',
+        'pump_max_mode1': 1,
+        'pump_max_mode2': 5,
         'initial_pump_coefficient': 'custom',
-        'custom_pump_coefficient': {REAL: {3: 1., 4: 1., 5: 1.}, IMAG: {3: 1., 4: 1., 5: 1.}},
+        'custom_pump_coefficient': {REAL: {0: 1., 1: 1., 2: 1., 3: 1., 4: 1.}, IMAG: {0: 0., 1: 0., 2: 0., 3: 0., 4: 0.}},
         'pump_coefficient_path': None,
         'initial_pump_waist': 'waist_pump0',
         'pump_waists_path': None,
-        'crystal_basis': 'LG',
+        'crystal_basis': None,
         'crystal_max_mode1': 2,
         'crystal_max_mode2': 3,
         'initial_crystal_coefficient': 'custom',
@@ -618,14 +618,14 @@ if __name__ == "__main__":
         'lam_pump': 405e-9,
         'crystal_str': 'ktp',
         'power_pump': 1e-3,
-        'waist_pump0': 40e-6,
+        'waist_pump0': None,
         'r_scale0': 40e-6,
         'dx': 4e-6,
         'dy': 4e-6,
         'dz': 10e-6,
-        'maxX': 120e-6,
-        'maxY': 120e-6,
-        'maxZ': 1e-3,
+        'maxX': 400e-6,
+        'maxY': 400e-6,
+        'maxZ': 5e-3,
         'R': 0.1,
         'Temperature': 50,
         'pump_polarization': 'y',
@@ -637,9 +637,9 @@ if __name__ == "__main__":
     }
 
     projection_params = {
-        'coincidence_projection_basis': 'LG',
+        'coincidence_projection_basis': 'HG',
         'coincidence_projection_max_mode1': 1,
-        'coincidence_projection_max_mode2': 4,
+        'coincidence_projection_max_mode2': 10,
         'coincidence_projection_waist': None,
         'coincidence_projection_wavelength': None,
         'coincidence_projection_polarization': 'y',
@@ -657,7 +657,7 @@ if __name__ == "__main__":
     }
 
     run_experiment(
-        run_name='test',
+        run_name='hg_ququad',
         seed=42,
         JAX_ENABLE_X64='True',
         minimal_GPU_memory=False,
