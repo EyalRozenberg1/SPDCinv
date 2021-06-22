@@ -1,5 +1,7 @@
 from abc import ABC
+from jax import jit
 from spdc_inv.utils.utils import h_bar, eps0, c
+from spdc_inv.utils.utils import PP_crystal_slab
 
 import jax.numpy as np
 
@@ -102,34 +104,111 @@ def crystal_prop(
     idler_vac  = idler_field.vac * (vacuum_states[:, 1, 0] + 1j * vacuum_states[:, 1, 1]) / np.sqrt(2)
 
     for z in interaction.z:
-        # pump beam:
-        E_pump = propagate(pump_profile, x, y, pump.k, z) * np.exp(-1j * pump.k * z)
-
-        # crystal slab:
-        PP     = interaction.slab(poling_period, z, crystal_hologram, infer)
-
-        # coupled wave equations - split step
-        # signal:
-        dEs_out_dz = signal_field.kappa * interaction.d33 * PP * E_pump * np.conj(idler_vac)
-        dEs_vac_dz = signal_field.kappa * interaction.d33 * PP * E_pump * np.conj(idler_out)
-        signal_out = signal_out + dEs_out_dz * dz
-        signal_vac = signal_vac + dEs_vac_dz * dz
-
-        # idler:
-        dEi_out_dz = idler_field.kappa * interaction.d33 * PP * E_pump * np.conj(signal_vac)
-        dEi_vac_dz = idler_field.kappa * interaction.d33 * PP * E_pump * np.conj(signal_out)
-        idler_out  = idler_out + dEi_out_dz * dz
-        idler_vac  = idler_vac + dEi_vac_dz * dz
-
-        # propagate
-        signal_out = propagate(signal_out, x, y, signal_field.k, dz) * np.exp(-1j * signal_field.k * dz)
-        signal_vac = propagate(signal_vac, x, y, signal_field.k, dz) * np.exp(-1j * signal_field.k * dz)
-        idler_out  = propagate(idler_out, x, y, idler_field.k, dz) * np.exp(-1j * idler_field.k * dz)
-        idler_vac  = propagate(idler_vac, x, y, idler_field.k, dz) * np.exp(-1j * idler_field.k * dz)
+        signal_out, signal_vac, idler_out, idler_vac = propagate_dz(
+            pump_profile,
+            x,
+            y,
+            z,
+            dz,
+            pump.k,
+            signal_field.k,
+            idler_field.k,
+            signal_field.kappa,
+            idler_field.kappa,
+            poling_period,
+            crystal_hologram,
+            interaction.d33,
+            signal_out,
+            signal_vac,
+            idler_out,
+            idler_vac,
+            infer
+        )
     
     return signal_out, idler_out, idler_vac
 
 
+@jit
+def propagate_dz(
+        pump_profile,
+        x,
+        y,
+        z,
+        dz,
+        pump_k,
+        signal_field_k,
+        idler_field_k,
+        signal_field_kappa,
+        idler_field_kappa,
+        poling_period,
+        crystal_hologram,
+        interaction_d33,
+        signal_out,
+        signal_vac,
+        idler_out,
+        idler_vac,
+        infer,
+):
+    """
+    Single step of crystal propagation
+    single split step Fourier for 4 fields: signal, idler and two vacuum states
+
+    Parameters
+    ----------
+    pump_profile
+    x:  x axis, length 2*MaxX (transverse)
+    y:  y axis, length 2*MaxY  (transverse)
+    z:  z axis, length MaxZ (propagation)
+    dz: longitudinal resolution in z [m]
+    pump_k: pump k vector
+    signal_field_k: signal k vector
+    idler_field_k: field k vector
+    signal_field_kappa: signal kappa
+    idler_field_kappa: idler kappa
+    poling_period: poling period
+    crystal_hologram: Crystal 3D hologram (if None, ignore)
+    interaction_d33: nonlinear coefficient [meter/Volt]
+    signal_out: current signal profile
+    signal_vac: current signal vacuum state profile
+    idler_out: current idler profile
+    idler_vac: current idler vacuum state profile
+    infer: (True/False) if in inference mode, we include more coefficients in the poling
+                description for better validation
+
+    Returns
+    -------
+
+    """
+
+    # pump beam:
+    E_pump = propagate(pump_profile, x, y, pump_k, z) * np.exp(-1j * pump_k * z)
+
+    # crystal slab:
+    PP = PP_crystal_slab(poling_period, z, crystal_hologram, infer)
+
+    # coupled wave equations - split step
+    # signal:
+    dEs_out_dz = signal_field_kappa * interaction_d33 * PP * E_pump * np.conj(idler_vac)
+    dEs_vac_dz = signal_field_kappa * interaction_d33 * PP * E_pump * np.conj(idler_out)
+    signal_out = signal_out + dEs_out_dz * dz
+    signal_vac = signal_vac + dEs_vac_dz * dz
+
+    # idler:
+    dEi_out_dz = idler_field_kappa * interaction_d33 * PP * E_pump * np.conj(signal_vac)
+    dEi_vac_dz = idler_field_kappa * interaction_d33 * PP * E_pump * np.conj(signal_out)
+    idler_out = idler_out + dEi_out_dz * dz
+    idler_vac = idler_vac + dEi_vac_dz * dz
+
+    # propagate
+    signal_out = propagate(signal_out, x, y, signal_field_k, dz) * np.exp(-1j * signal_field_k * dz)
+    signal_vac = propagate(signal_vac, x, y, signal_field_k, dz) * np.exp(-1j * signal_field_k * dz)
+    idler_out = propagate(idler_out, x, y, idler_field_k, dz) * np.exp(-1j * idler_field_k * dz)
+    idler_vac = propagate(idler_vac, x, y, idler_field_k, dz) * np.exp(-1j * idler_field_k * dz)
+
+    return signal_out, signal_vac, idler_out, idler_vac
+
+
+@jit
 def propagate(A, x, y, k, dz):
     """
     Free Space propagation using the free space transfer function,

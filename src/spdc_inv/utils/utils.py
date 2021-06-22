@@ -1,10 +1,11 @@
 from abc import ABC
-import scipy.special as sp
-import jax.numpy as np
-import math
 from jax.ops import index_update
 from typing import List, Union, Any
 from spdc_inv.utils.defaults import QUBIT
+
+import scipy.special as sp
+import jax.numpy as np
+import math
 
 
 # Constants:

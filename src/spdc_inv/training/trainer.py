@@ -24,13 +24,9 @@ class BaseTrainer(ABC):
             key: np.array,
             n_epochs: int,
             N_train: int,
-            bs_train_device: int,
             N_inference: int,
-            bs_inference_device: int,
             N_train_device: int,
             N_inference_device: int,
-            nb_train_device: int,
-            nb_inference_device: int,
             learn_pump_coeffs: bool,
             learn_pump_waists: bool,
             learn_crystal_coeffs: bool,
@@ -50,13 +46,9 @@ class BaseTrainer(ABC):
         self.n_devices           = n_devices
         self.n_epochs            = n_epochs
         self.N_train             = N_train
-        self.bs_train_device     = bs_train_device
         self.N_inference         = N_inference
-        self.bs_inference_device = bs_inference_device
         self.N_train_device      = N_train_device
         self.N_inference_device  = N_inference_device
-        self.nb_train_device     = nb_train_device
-        self.nb_inference_device = nb_inference_device
         self.keep_best           = keep_best
         self.delta_k             = pump.k - signal.k - idler.k  # phase mismatch
         self.poling_period       = interaction.dk_offset * self.delta_k
@@ -158,8 +150,6 @@ class BaseTrainer(ABC):
         self.model.learn_mode  = False
         self.model.N           = self.N_inference
         self.model.N_device    = self.N_inference_device
-        self.model.nb_device   = self.nb_inference_device
-        self.model.bs          = self.bs_inference_device
 
         # seed vacuum samples for each gpu
         self.key, subkey = random.split(self.key)
@@ -171,12 +161,10 @@ class BaseTrainer(ABC):
         self.model.learn_mode = True
         self.model.N          = self.N_train
         self.model.N_device   = self.N_train_device
-        self.model.nb_device  = self.nb_train_device
-        self.model.bs         = self.bs_train_device
 
         opt_state = self.opt_init(self.model_parameters)
 
-        loss_trn, loss_vld, best_loss = [], [], None
+        loss_trn, best_loss = [], None
         epochs_without_improvement = 0
 
         for epoch in range(self.n_epochs):
@@ -185,25 +173,20 @@ class BaseTrainer(ABC):
 
             idx = np.array([epoch]).repeat(self.n_devices)
             self.key, subkey = random.split(self.key)
-            training_subkey, validation_subkey = random.split(subkey)
-            training_subkeys = random.split(training_subkey, self.n_devices)
-            validation_subkeys = random.split(validation_subkey, self.n_devices)
+            training_subkeys = random.split(subkey, self.n_devices)
 
-            training_loss, validation_loss, opt_state = self.update(opt_state,
-                                                                    idx,
-                                                                    training_subkeys,
-                                                                    validation_subkeys)
+            training_loss, opt_state = self.update(opt_state,
+                                                   idx,
+                                                   training_subkeys,)
+
             loss_trn.append(training_loss[0].item())
-            loss_vld.append(validation_loss[0].item())
 
             print("in {:0.2f} sec".format(time.time() - start_time_epoch))
-
             print("training   objective loss:{:0.6f}".format(loss_trn[epoch]))
-            print("validation objective loss:{:0.6f}".format(loss_vld[epoch]))
 
-            if best_loss is None or loss_vld[epoch] < best_loss and not onp.isnan(loss_vld[epoch]):
+            if best_loss is None or loss_trn[epoch] < best_loss and not onp.isnan(loss_trn[epoch]):
 
-                print(f'best validation objective loss is reached\n')
+                print(f'best objective loss is reached\n')
 
                 model_parameters = self.get_params(opt_state)
                 pump_coeffs_real, \
@@ -232,7 +215,7 @@ class BaseTrainer(ABC):
                     print("3D hologram basis functions-"
                           f"effective  waists (r_scale) [um]: \n {r_scale[0] * 10}\n")
 
-                best_loss = loss_vld[epoch]
+                best_loss = loss_trn[epoch]
                 epochs_without_improvement = 0
                 if self.keep_best:
                     self.model_parameters = model_parameters
@@ -246,7 +229,7 @@ class BaseTrainer(ABC):
                 model_parameters = self.get_params(opt_state)
                 self.model_parameters = model_parameters
 
-        return loss_trn, loss_vld, best_loss
+        return loss_trn, best_loss
 
     @partial(pmap, axis_name='device', static_broadcasted_argnums=(0,))
     def update(
@@ -254,7 +237,6 @@ class BaseTrainer(ABC):
             opt_state,
             i,
             training_subkeys,
-            validation_subkeys
     ):
 
         model_parameters = self.get_params(opt_state)
@@ -271,11 +253,7 @@ class BaseTrainer(ABC):
         opt_state     = self.opt_update(i, grads, opt_state)
         training_loss = lax.pmean(loss, 'device')
 
-        model_parameters = self.get_params(opt_state)
-        loss = self.loss(model_parameters, validation_subkeys)
-        validation_loss = lax.pmean(loss, 'device')
-
-        return training_loss, validation_loss, opt_state
+        return training_loss, opt_state
 
 
     def loss(

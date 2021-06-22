@@ -33,9 +33,7 @@ def run_experiment(
         keep_best: bool = True,
         n_epochs: int = 500,
         N_train: int = 1000,
-        bs_train_device: int = 1000,
         N_inference: int = 1000,
-        bs_inference_device: int = 1000,
         target: str = 'qutrit',
         observable_vec: Tuple[Dict[Any, bool]] = None,
         loss_arr: Tuple[Dict[Any, Optional[Tuple[str, str]]]] = None,
@@ -126,9 +124,7 @@ def run_experiment(
     keep_best: if True, best learned result are kept
     n_epochs: number of epochs for learning
     N_train: size of vacuum states in training method
-    bs_train_device: size of vacuum states for each batch on single device, in training method
     N_inference: size of vacuum states in inference method
-    bs_inference_device: size of vacuum states for each batch on single device, in inference method
     target: name of target folder with observables, for training (should be placed under: SPDCinv/data/targets/)
             For any observable, the files in the folder must contain one of the corresponding names:
                     'coincidence_rate.npy', 'density_matrix.npy' 'tomography_matrix.npy'
@@ -281,15 +277,14 @@ def run_experiment(
     print(f'Number of GPU devices: {n_devices} \n')
 
     if learn_mode:
-        assert N_train % (bs_train_device * n_devices) == 0, "The number of training examples should be " \
-                                                             "divisible by the number of devices time batch size"
+        assert N_train % n_devices == 0, "The number of training examples should be " \
+                                                             "divisible by the number of devices"
 
-    assert N_inference % (bs_inference_device * n_devices) == 0, "The number of inference examples should be " \
-                                                                 "divisible by the number of devices time batch size"
+    assert N_inference % n_devices == 0, "The number of inference examples should be " \
+                                         "divisible by the number of devices"
+
     N_train_device      = int(N_train / n_devices)
     N_inference_device  = int(N_inference / n_devices)
-    nb_train_device     = int(N_train_device / bs_train_device)
-    nb_inference_device = int(N_inference_device / bs_inference_device)
 
     specs = {
         'experiment name': run_name,
@@ -414,13 +409,9 @@ def run_experiment(
         key=key,
         n_epochs=n_epochs,
         N_train=N_train,
-        bs_train_device=bs_train_device,
         N_inference=N_inference,
-        bs_inference_device=bs_inference_device,
         N_train_device=N_train_device,
         N_inference_device=N_inference_device,
-        nb_train_device=nb_train_device,
-        nb_inference_device=nb_inference_device,
         learn_pump_coeffs=learn_pump_coeffs,
         learn_pump_waists=learn_pump_waists,
         learn_crystal_coeffs=learn_crystal_coeffs,

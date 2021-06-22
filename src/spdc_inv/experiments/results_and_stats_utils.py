@@ -15,7 +15,7 @@ def save_training_statistics(
         interaction,
         model_parameters,
 ):
-    loss_trn, loss_vld, best_loss = fit_results
+    loss_trn, best_loss = fit_results
 
     pump_coeffs_real, \
     pump_coeffs_imag, \
@@ -51,7 +51,6 @@ def save_training_statistics(
 
     # print loss
     plt.plot(loss_trn, 'r', label='training')
-    plt.plot(loss_vld, 'b', label='validation')
     plt.ylabel('objective loss')
     plt.xlabel('#epoch')
     # plt.ylim(0.2, 1)
