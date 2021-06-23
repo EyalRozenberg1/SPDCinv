@@ -70,14 +70,14 @@ class Interaction(ABC):
                                           random- uniform distribution
                                           custom- as defined at custom_pump_coefficient
                                           load- will be loaded from np.arrays defined under path: pump_coefficient_path
-                                                with names: PumpCoeffs_real.npy, PumpCoeffs_imag.npy
+                                                with names: parameters_pump_real.npy, parameters_pump_imag.npy
         pump_coefficient_path: path for loading waists for pump basis function
         custom_pump_coefficient: (dictionary) used only if initial_pump_coefficient=='custom'
                                  {'real': {indexes:coeffs}, 'imag': {indexes:coeffs}}.
         initial_pump_waist: defines the initial values of waists for pump basis function
                             can be: waist_pump0- will be set according to waist_pump0
                                     load- will be loaded from np.arrays defined under path: pump_waists_path
-                                    with name: PumpWaistCoeffs.npy
+                                    with name: parameters_pump_waists.npy
         pump_waists_path: path for loading coefficient-amplitudes for pump basis function
         crystal_basis: Crystal's construction basis method
                        Can be:
@@ -90,14 +90,14 @@ class Interaction(ABC):
                                       random- uniform distribution
                                       custom- as defined at custom_crystal_coefficient
                                       load- will be loaded from np.arrays defined under path: crystal_coefficient_path
-                                            with names: CrystalCoeffs_real.npy, CrystalCoeffs_imag.npy
+                                            with names: parameters_crystal_real.npy, parameters_crystal_imag.npy
         crystal_coefficient_path: path for loading coefficient-amplitudes for crystal basis function
         custom_crystal_coefficient: (dictionary) used only if initial_crystal_coefficient=='custom'
                                  {'real': {indexes:coeffs}, 'imag': {indexes:coeffs}}.
         initial_crystal_waist: defines the initial values of waists for crystal basis function
                                can be: r_scale0- will be set according to r_scale0
                                        load- will be loaded from np.arrays defined under path: crystal_waists_path
-                                             with name: CrystalWaistCoeffs.npy
+                                             with name: parameters_crystal_effective_waists.npy
         crystal_waists_path: path for loading waists for crystal basis function
         lam_pump: Pump wavelength
         crystal_str: Crystal type. Can be: KTP or MgCLN
@@ -252,8 +252,8 @@ class Interaction(ABC):
         elif self.initial_pump_coefficient == "load":
             assert self.pump_coefficient_path, 'Path to pump coefficients must be defined'
 
-            coeffs_real = np.load(os.path.join(self.pump_coefficient_path, 'PumpCoeffs_real.npy'))
-            coeffs_imag = np.load(os.path.join(self.pump_coefficient_path, 'PumpCoeffs_imag.npy'))
+            coeffs_real = np.load(os.path.join(self.pump_coefficient_path, 'parameters_pump_real.npy'))
+            coeffs_imag = np.load(os.path.join(self.pump_coefficient_path, 'parameters_pump_imag.npy'))
 
         else:
             coeffs_real, coeffs_imag = None, None
@@ -275,7 +275,7 @@ class Interaction(ABC):
         elif self.initial_pump_waist == "load":
             assert self.pump_waists_path, 'Path to pump waists must be defined'
 
-            waist_pump = np.load(os.path.join(self.pump_coefficient_path, "PumpWaistCoeffs.npy")) * 1e-1
+            waist_pump = np.load(os.path.join(self.pump_coefficient_path, "parameters_pump_waists.npy")) * 1e-1
 
         else:
             waist_pump = None
@@ -319,8 +319,8 @@ class Interaction(ABC):
         elif self.initial_crystal_coefficient == "load":
             assert self.crystal_coefficient_path, 'Path to crystal coefficients must be defined'
 
-            coeffs_real = np.load(os.path.join(self.crystal_coefficient_path, 'CrystalCoeffs_real.npy'))
-            coeffs_imag = np.load(os.path.join(self.crystal_coefficient_path, 'CrystalCoeffs_imag.npy'))
+            coeffs_real = np.load(os.path.join(self.crystal_coefficient_path, 'parameters_crystal_real.npy'))
+            coeffs_imag = np.load(os.path.join(self.crystal_coefficient_path, 'parameters_crystal_imag.npy'))
 
         else:
             coeffs_real, coeffs_imag = None, None
@@ -346,7 +346,7 @@ class Interaction(ABC):
         elif self.initial_crystal_waist == "load":
             assert self.crystal_waists_path, 'Path to crystal waists must be defined'
 
-            r_scale = np.load(os.path.join(self.crystal_waists_path, "CrystalWaistCoeffs.npy")) * 1e-1
+            r_scale = np.load(os.path.join(self.crystal_waists_path, "parameters_crystal_effective_waists.npy")) * 1e-1
 
         else:
             r_scale = None

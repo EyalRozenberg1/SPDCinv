@@ -61,12 +61,12 @@ def save_training_statistics(
     plt.savefig(os.path.join(logs_dir, 'loss'))
     plt.close()
 
-    np.save(os.path.join(logs_dir, 'parameters_pump_real.npy'), pump_coeffs_real)
-    np.save(os.path.join(logs_dir, 'parameters_pump_imag.npy'), pump_coeffs_imag)
-    np.save(os.path.join(logs_dir, 'parameters_pump_waists.npy'), waist_pump)
-    np.save(os.path.join(logs_dir, 'parameters_crystal_real.npy'), crystal_coeffs_real)
-    np.save(os.path.join(logs_dir, 'parameters_crystal_imag.npy'), crystal_coeffs_imag)
-    np.save(os.path.join(logs_dir, 'parameters_crystal_effective_waists.npy'), r_scale)
+    np.save(os.path.join(logs_dir, 'parameters_pump_real.npy'), pump_coeffs_real[0])
+    np.save(os.path.join(logs_dir, 'parameters_pump_imag.npy'), pump_coeffs_imag[0])
+    np.save(os.path.join(logs_dir, 'parameters_pump_waists.npy'), waist_pump[0])
+    np.save(os.path.join(logs_dir, 'parameters_crystal_real.npy'), crystal_coeffs_real[0])
+    np.save(os.path.join(logs_dir, 'parameters_crystal_imag.npy'), crystal_coeffs_imag[0])
+    np.save(os.path.join(logs_dir, 'parameters_crystal_effective_waists.npy'), r_scale[0])
 
     return
 
