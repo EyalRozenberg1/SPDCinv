@@ -1,5 +1,5 @@
 from abc import ABC
-from jax.ops import index_update
+from jax.ops import index_update, index_add, index
 from typing import List, Union, Any
 from spdc_inv.utils.defaults import QUBIT
 
@@ -668,3 +668,90 @@ def fix_power(
     output = A * np.sqrt(power) / np.sqrt(Power2D(A, n, dx, dy))
     return output
 
+
+class DensMat(ABC):
+    """
+    A class that holds tomography dimensions and
+    tensors used for calculating qubit and qutrit tomography
+    """
+
+    def __init__(
+            self,
+            projection_n_state2,
+            tomography_dimension
+    ):
+        assert tomography_dimension in [2, 3], "tomography_dimension must be 2 or 3, " \
+                                               f"got {tomography_dimension}"
+
+        self.projection_n_state2 = projection_n_state2
+        self.tomography_dimension = tomography_dimension
+        self.rotation_mats, self.masks = self.dens_mat_tensors()
+
+    def dens_mat_tensors(
+            self
+    ):
+        rot_mats_tensor = np.zeros([self.tomography_dimension ** 4,
+                                    self.tomography_dimension ** 2,
+                                    self.tomography_dimension ** 2],
+                                   dtype='complex64')
+
+        masks_tensor = np.zeros([self.tomography_dimension ** 4,
+                                 self.projection_n_state2,
+                                 self.projection_n_state2],
+                                dtype='complex64')
+
+        if self.tomography_dimension == 2:
+            mats = (
+                np.eye(2, dtype='complex64'),
+                (1 / np.sqrt(2)) * np.array([[0, 1], [1, 0]]),
+                (1 / np.sqrt(2)) * np.array([[0, -1j], [1j, 0]]),
+                np.array([[1, 0], [0, -1]])
+            )
+
+            vecs = (
+                np.array([1, 1, 0, 0, 0, 0]),
+                (1 / np.sqrt(2)) * np.array([0, 0, 1, -1, 0, 0]),
+                (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 1, -1]),
+                np.array([1, -1, 0, 0, 0, 0])
+            )
+
+        else:  # tomography_dimension == 3
+            mats = (
+                np.eye(3, dtype='complex64'),
+                np.array([[1, 0, 0], [0, -1, 0], [0, 0, 0]]),
+                np.array([[0, 1, 0], [1, 0, 0], [0, 0, 0]]),
+                np.array([[0, -1j, 0], [1j, 0, 0], [0, 0, 0]]),
+                np.array([[0, 0, 1], [0, 0, 0], [1, 0, 0]]),
+                np.array([[0, 0, -1j], [0, 0, 0], [1j, 0, 0]]),
+                np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0]]),
+                np.array([[0, 0, 0], [0, 0, -1j], [0, 1j, 0]]),
+                (1 / np.sqrt(3)) * np.array([[1, 0, 0], [0, 1, 0], [0, 0, -2]])
+            )
+
+            vecs = (
+                np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+               np.array([1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+               (1 / np.sqrt(2)) * np.array([0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+               (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, 0, 0]),
+               (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0]),
+               (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0]),
+               (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0]),
+               (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1]),
+               (np.sqrt(3) / 3) * np.array([1, 1, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+            )
+
+        counter = 0
+
+        for m in range(self.tomography_dimension ** 2):
+            for n in range(self.tomography_dimension ** 2):
+                norm1 = np.trace(mats[m] @ mats[m])
+                norm2 = np.trace(mats[n] @ mats[n])
+                mat1 = mats[m] / norm1
+                mat2 = mats[n] / norm2
+                rot_mats_tensor = index_add(rot_mats_tensor, index[counter, :, :], np.kron(mat1, mat2))
+                mask = np.dot(vecs[m].reshape(self.projection_n_state2, 1),
+                              np.transpose((vecs[n]).reshape(self.projection_n_state2, 1)))
+                masks_tensor = index_add(masks_tensor, index[counter, :, :], mask)
+                counter = counter + 1
+
+        return rot_mats_tensor, masks_tensor

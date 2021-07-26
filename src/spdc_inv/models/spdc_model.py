@@ -1,11 +1,13 @@
 from abc import ABC
 import jax.random as random
 import jax.numpy as np
-import operator
+
 from spdc_inv.models.utils import Field
 from spdc_inv.models.utils import crystal_prop, propagate
+from spdc_inv.utils.defaults import QUBIT
+from spdc_inv.utils.utils import DensMat
 from spdc_inv.training.utils import projection_matrix_calc, projection_matrices_calc, \
-    decompose, fix_power, get_density_matrix
+    decompose, fix_power, get_qubit_density_matrix, get_qutrit_density_matrix
 
 
 class SPDCmodel(ABC):
@@ -278,7 +280,25 @@ class SPDCmodel(ABC):
                 self.projection_tomography_matrix.projection_n_state2 ** 2)
 
             if self.density_matrix_observable:
-                density_matrix = get_density_matrix(tomography_matrix)
+                densmat = DensMat(
+                    self.projection_tomography_matrix.projection_n_state2,
+                    self.projection_tomography_matrix.tomography_dimensions
+                )
+
+                if self.projection_tomography_matrix.tomography_quantum_state is QUBIT:
+                    density_matrix = get_qubit_density_matrix(tomography_matrix,
+                                                              densmat.masks,
+                                                              densmat.rotation_mats,
+                                                              ).reshape(
+                        self.projection_tomography_matrix.tomography_dimensions ** 2,
+                        self.projection_tomography_matrix.tomography_dimensions ** 2)
+                else:
+                    density_matrix = get_qutrit_density_matrix(tomography_matrix,
+                                                               densmat.masks,
+                                                               densmat.rotation_mats,
+                                                               ).reshape(
+                        self.projection_tomography_matrix.tomography_dimensions ** 2,
+                        self.projection_tomography_matrix.tomography_dimensions ** 2)
 
         return coincidence_rate, density_matrix, tomography_matrix
 

@@ -2,7 +2,8 @@ import sys
 import jax.numpy as np
 from jax import lax
 from jax import jit
-from spdc_inv.utils.defaults import QUBIT, QUTRIT
+from spdc_inv.utils.defaults import qubit_projection_n_state2, \
+    qubit_tomography_dimensions, qutrit_projection_n_state2, qutrit_tomography_dimensions
 
 
 @jit
@@ -129,21 +130,33 @@ def projection_matrix_calc(G1_ss, G1_ii, G1_si, G1_si_dagger, Q_si, Q_si_dagger)
 
 
 @jit
-def get_density_matrix(
-            self,
-            tomography_matrix
-    ):
-        density_matrix = None
-        if self.projection_tomography_matrix.tomography_quantum_state is QUBIT:
-            sys.exit(f'density matrix observable is not available for {QUBIT} state')
+def get_qubit_density_matrix(
+        tomography_matrix,
+        masks,
+        rotation_mats
+):
 
-        else:
-            sys.exit(f'density matrix observable is not available for {QUTRIT} state')
-        # tomography_qutrit(
-        #     tomography_matrix.reshape(
-        #         self.projection_tomography_matrix.projection_n_state2,
-        #         self.projection_tomography_matrix.projection_n_state2),
-        #     space_size,
-        #     self.projection_tomography_matrix.projection_n_state2
-        # )
-        return density_matrix
+    tomography_matrix = tomography_matrix.reshape(qubit_projection_n_state2, qubit_projection_n_state2)
+
+    dens_mat = (1 / (qubit_tomography_dimensions ** 2)) * (tomography_matrix * masks).sum(1).sum(1).reshape(
+        qubit_tomography_dimensions ** 4, 1, 1)
+    dens_mat = (dens_mat * rotation_mats)
+    dens_mat = dens_mat.sum(0)
+
+    return dens_mat
+
+@jit
+def get_qutrit_density_matrix(
+        tomography_matrix,
+        masks,
+        rotation_mats
+):
+
+    tomography_matrix = tomography_matrix.reshape(qutrit_projection_n_state2, qutrit_projection_n_state2)
+
+    dens_mat = (1 / (qutrit_tomography_dimensions ** 2)) * (tomography_matrix * masks).sum(1).sum(1).reshape(
+        qubit_tomography_dimensions ** 4, 1, 1)
+    dens_mat = (dens_mat * rotation_mats)
+    dens_mat = dens_mat.sum(0)
+
+    return dens_mat

@@ -295,8 +295,13 @@ class BaseTrainer(ABC):
 
         if self.density_matrix_loss.observable_as_target:
             density_matrix = density_matrix / np.trace(np.real(density_matrix))
-        density_matrix_loss = self.density_matrix_loss.apply(density_matrix,
-                                                             model_parameters, self.target_density_matrix)
+        density_matrix_loss = self.density_matrix_loss.apply(
+            density_matrix,
+            model_parameters, self.target_density_matrix.reshape(
+                self.projection_tomography_matrix.tomography_dimensions ** 2,
+                self.projection_tomography_matrix.tomography_dimensions ** 2)
+        )
+
 
         if self.tomography_matrix_loss.observable_as_target:
             tomography_matrix = tomography_matrix / np.sum(np.abs(tomography_matrix))

@@ -3,6 +3,8 @@ from jax import numpy as np
 from typing import Tuple, Dict, Any, List, Union
 from spdc_inv.utils.utils import HermiteBank, LaguerreBank, TomographyBank
 from spdc_inv.utils.defaults import QUBIT, QUTRIT
+from spdc_inv.utils.defaults import qubit_projection_n_state2, \
+    qubit_tomography_dimensions, qutrit_projection_n_state2, qutrit_tomography_dimensions
 
 
 class Projection_coincidence_rate(ABC):
@@ -183,9 +185,11 @@ class Projection_tomography_matrix(ABC):
 
         self.projection_n_state1 = 1
         if self.tomography_quantum_state is QUBIT:
-            self.projection_n_state2 = 6
+            self.projection_n_state2 = qubit_projection_n_state2
+            self.tomography_dimensions = qubit_tomography_dimensions
         else:
-            self.projection_n_state2 = 15
+            self.projection_n_state2 = qutrit_projection_n_state2
+            self.tomography_dimensions = qutrit_tomography_dimensions
 
         refractive_index = ctype(wavelength * 1e6, temperature, polarization)
         [x, y] = np.meshgrid(crystal_x, crystal_y)
