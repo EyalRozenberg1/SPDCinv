@@ -155,7 +155,7 @@ def get_qutrit_density_matrix(
     tomography_matrix = tomography_matrix.reshape(qutrit_projection_n_state2, qutrit_projection_n_state2)
 
     dens_mat = (1 / (qutrit_tomography_dimensions ** 2)) * (tomography_matrix * masks).sum(1).sum(1).reshape(
-        qubit_tomography_dimensions ** 4, 1, 1)
+        qutrit_tomography_dimensions ** 4, 1, 1)
     dens_mat = (dens_mat * rotation_mats)
     dens_mat = dens_mat.sum(0)
 
