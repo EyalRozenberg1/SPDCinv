@@ -461,22 +461,16 @@ def run_experiment(
                                                                              decay_rate=decay_rate)
 
         if trainer.coincidence_rate_loss.target_str and observable_vec[COINCIDENCE_RATE]:
-            trainer.target_coincidence_rate = pmap(lambda x:
-                                                   np.load(os.path.join(
-                                                       DATA_DIR, 'targets', trainer.coincidence_rate_loss.target_str
-                                                   )))(np.arange(n_devices))
+            trainer.target_coincidence_rate = np.load(os.path.join(
+                                                       DATA_DIR, 'targets', trainer.coincidence_rate_loss.target_str))
 
         if trainer.density_matrix_loss.target_str and observable_vec[DENSITY_MATRIX]:
-            trainer.target_density_matrix = pmap(lambda x:
-                                                 np.load(os.path.join(
-                                                     DATA_DIR, 'targets', trainer.density_matrix_loss.target_str
-                                                 )))(np.arange(n_devices))
+            trainer.target_density_matrix = np.load(os.path.join(
+                                                     DATA_DIR, 'targets', trainer.density_matrix_loss.target_str))
 
         if trainer.tomography_matrix_loss.target_str and observable_vec[TOMOGRAPHY_MATRIX]:
-            trainer.target_tomography_matrix = pmap(lambda x:
-                                                    np.load(os.path.join(
-                                                        DATA_DIR, 'targets', trainer.tomography_matrix_loss.target_str
-                                                    )))(np.arange(n_devices))
+            trainer.target_tomography_matrix = np.load(os.path.join(
+                                                        DATA_DIR, 'targets', trainer.tomography_matrix_loss.target_str))
 
         start_time = time.time()
         fit_results = trainer.fit()

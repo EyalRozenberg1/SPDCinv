@@ -36,6 +36,11 @@ class Loss(ABC):
         self.REG_OBS = dict(sparsify=self.sparsify,
                             equalize=self.equalize)
 
+        if observable_as_target:
+            assert loss_arr is not None, 'While observable_as_target is True, ' \
+                                                              'a loss must be selected.\n' \
+                                                              'Got loss_arr as None.'
+
         if loss_arr is not None:
             assert len(loss_arr) == len(loss_weights), 'loss_arr and loss_weights must have equal number of elements'
 

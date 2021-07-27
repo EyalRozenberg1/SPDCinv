@@ -287,22 +287,21 @@ class BaseTrainer(ABC):
         observables = self.model.forward(model_parameters, keys)
 
         (coincidence_rate, density_matrix, tomography_matrix) = observables
-
         if self.coincidence_rate_loss.observable_as_target:
             coincidence_rate = coincidence_rate / np.sum(np.abs(coincidence_rate))
-        coincidence_rate_loss = vmap(self.coincidence_rate_loss.apply, in_axes=(None, None, 0))(
+        coincidence_rate_loss = self.coincidence_rate_loss.apply(
             coincidence_rate, model_parameters, self.target_coincidence_rate
         )
 
         if self.density_matrix_loss.observable_as_target:
             density_matrix = density_matrix / np.trace(np.real(density_matrix))
-        density_matrix_loss = vmap(self.density_matrix_loss.apply, in_axes=(None, None, 0))(
+        density_matrix_loss = self.density_matrix_loss.apply(
             density_matrix, model_parameters, self.target_density_matrix
         )
 
         if self.tomography_matrix_loss.observable_as_target:
             tomography_matrix = tomography_matrix / np.sum(np.abs(tomography_matrix))
-        tomography_matrix_loss = vmap(self.tomography_matrix_loss.apply, in_axes=(None, None, 0))(
+        tomography_matrix_loss = self.tomography_matrix_loss.apply(
             tomography_matrix, model_parameters, self.target_tomography_matrix
         )
 
