@@ -157,7 +157,7 @@ class Interaction(ABC):
             self.ctype = nz_MgCLN_Gayer  # refractive index function
             self.pump_k = 2 * np.pi * nz_MgCLN_Gayer(lam_pump * 1e6, Temperature) / lam_pump
             self.d33 = 23.4e-12  # [meter/Volt]
-        self.slab = PP_crystal_slab
+        # self.slab = PP_crystal_slab
 
         if waist_pump0 is None:
             self.waist_pump0 = np.sqrt(maxZ / self.pump_k)

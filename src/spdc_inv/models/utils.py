@@ -45,7 +45,7 @@ def crystal_prop(
         poling_period,
         N,
         crystal_hologram,
-        infer,
+        infer=None,
         signal_init=None,
         idler_init=None
 ):
@@ -147,7 +147,7 @@ def propagate_dz(
         signal_vac,
         idler_out,
         idler_vac,
-        infer,
+        infer=None,
 ):
     """
     Single step of crystal propagation

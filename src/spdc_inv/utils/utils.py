@@ -27,7 +27,7 @@ def PP_crystal_slab(
         delta_k,
         z,
         crystal_profile,
-        inference: bool = False
+        inference=None
 ):
     """
     Periodically poled crystal slab.
@@ -50,7 +50,7 @@ def PP_crystal_slab(
     else:
         magnitude = np.abs(crystal_profile)
         phase = np.angle(crystal_profile)
-        if inference:
+        if inference is not None:
             max_order_fourier = 20
             poling = 0
             magnitude = magnitude / magnitude.max()

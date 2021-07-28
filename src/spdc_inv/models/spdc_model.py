@@ -87,7 +87,7 @@ class SPDCmodel(ABC):
                            self.poling_period,
                            self.N_device,
                            None if self.crystal_hologram is None else self.crystal_hologram.crystal_profile,
-                           not self.learn_mode,
+                           True if not self.learn_mode else None,
                            signal_init=None,
                            idler_init=None
                            )
