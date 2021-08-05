@@ -2,22 +2,13 @@ import random
 import os
 import shutil
 import time
-from jax import pmap
-from jax import numpy as np
+import numpy as onp
 from datetime import datetime
 from typing import Tuple, Dict, Any, Optional, List, Union
 from spdc_inv import DATA_DIR
 from spdc_inv import LOGS_DIR
-from spdc_inv.utils.utils import Beam
-from spdc_inv.utils.defaults import COINCIDENCE_RATE, DENSITY_MATRIX, TOMOGRAPHY_MATRIX
 from spdc_inv.utils.defaults import REAL, IMAG
-from spdc_inv.loss.loss import Loss
-from spdc_inv.data.interaction import Interaction
-from spdc_inv.experiments.utils import Projection_coincidence_rate, Projection_tomography_matrix
-from spdc_inv.experiments.results_and_stats_utils import save_results, save_training_statistics
-from spdc_inv.training.trainer import BaseTrainer
-from spdc_inv.optim.optimizer import Optimizer
-
+from spdc_inv.utils.defaults import COINCIDENCE_RATE, DENSITY_MATRIX, TOMOGRAPHY_MATRIX
 
 def run_experiment(
         run_name: str,
@@ -268,6 +259,14 @@ def run_experiment(
 
     import jax
     from jax.lib import xla_bridge
+    from jax import numpy as np
+    from spdc_inv.utils.utils import Beam
+    from spdc_inv.loss.loss import Loss
+    from spdc_inv.data.interaction import Interaction
+    from spdc_inv.experiments.utils import Projection_coincidence_rate, Projection_tomography_matrix
+    from spdc_inv.experiments.results_and_stats_utils import save_results, save_training_statistics
+    from spdc_inv.training.trainer import BaseTrainer
+    from spdc_inv.optim.optimizer import Optimizer
 
     if not seed:
         seed = random.randint(0, 2 ** 31)
@@ -634,7 +633,7 @@ if __name__ == "__main__":
         'tomography_projection_wavelength': None,
         'tomography_projection_polarization': 'y',
         'tomography_projection_z': 0.,
-        'tomography_relative_phase': [0, np.pi, 3 * (np.pi / 2), np.pi / 2],
+        'tomography_relative_phase': [0, onp.pi, 3 * (onp.pi / 2), onp.pi / 2],
         'tomography_quantum_state': 'qubit',
         'tau': 1e-9,
     }

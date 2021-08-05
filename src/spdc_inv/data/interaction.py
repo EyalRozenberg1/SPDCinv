@@ -241,11 +241,17 @@ class Interaction(ABC):
             for index, coeff in self.custom_pump_coefficient[REAL].items():
                 assert type(index) is int, f'index {index} must be int type'
                 assert type(coeff) is float, f'coeff {coeff} must be float type'
+                assert index < self.pump_n_modes, 'index for custom pump (real) initialization must be smaller ' \
+                                                  'than total number of modes.' \
+                                                  f'Got index {index} for total number of modes {self.pump_n_modes}'
                 coeffs_real = index_update(coeffs_real, index, coeff)
 
             for index, coeff in self.custom_pump_coefficient[IMAG].items():
                 assert type(index) is int, f'index {index} must be int type'
                 assert type(coeff) is float, f'coeff {coeff} must be float type'
+                assert index < self.pump_n_modes, 'index for custom pump (imag) initialization must be smaller ' \
+                                                  'than total number of modes.' \
+                                                  f'Got index {index} for total number of modes {self.pump_n_modes}'
                 coeffs_imag = index_update(coeffs_imag, index, coeff)
 
 
@@ -309,11 +315,17 @@ class Interaction(ABC):
             for index, coeff in self.custom_crystal_coefficient[REAL].items():
                 assert type(index) is int, f'index {index} must be int type'
                 assert type(coeff) is float, f'coeff {coeff} must be float type'
+                assert index < self.crystal_n_modes, 'index for custom crystal (real) initialization must be smaller ' \
+                                                  'than total number of modes.' \
+                                                  f'Got index {index} for total number of modes {self.crystal_n_modes}'
                 coeffs_real = index_update(coeffs_real, index, coeff)
 
             for index, coeff in self.custom_crystal_coefficient[IMAG].items():
                 assert type(index) is int, f'index {index} must be int type'
                 assert type(coeff) is float, f'coeff {coeff} must be float type'
+                assert index < self.crystal_n_modes, 'index for custom crystal (imag) initialization must be smaller ' \
+                                                     'than total number of modes.' \
+                                                     f'Got index {index} for total number of modes {self.crystal_n_modes}'
                 coeffs_imag = index_update(coeffs_imag, index, coeff)
 
         elif self.initial_crystal_coefficient == "load":
