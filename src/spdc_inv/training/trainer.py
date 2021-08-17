@@ -78,13 +78,38 @@ class BaseTrainer(ABC):
         self.target_tomography_matrix = None
 
         # Initialize pump and crystal coefficients
-        self.pump_coeffs_real, \
-        self.pump_coeffs_imag = interaction.initial_pump_coefficients()
-        self.waist_pump       = interaction.initial_pump_waists()
+        pump_coeffs_real, \
+        pump_coeffs_imag = interaction.initial_pump_coefficients()
+        waist_pump       = interaction.initial_pump_waists()
 
-        self.crystal_coeffs_real,\
-        self.crystal_coeffs_imag = interaction.initial_crystal_coefficients()
-        self.r_scale             = interaction.initial_crystal_waists()
+        crystal_coeffs_real,\
+        crystal_coeffs_imag = interaction.initial_crystal_coefficients()
+        r_scale             = interaction.initial_crystal_waists()
+
+        self.pump_coeffs_real, \
+        self.pump_coeffs_imag, \
+        self.waist_pump     = None, None, None
+
+        self.crystal_coeffs_real, \
+        self.crystal_coeffs_imag, \
+        self.r_scale = None, None, None
+
+        self.learn_pump_coeffs = learn_pump_coeffs
+        self.learn_pump_waists = learn_pump_waists
+        self.learn_crystal_coeffs = learn_crystal_coeffs
+        self.learn_crystal_waists = learn_crystal_waists
+
+        if self.learn_pump_coeffs:
+            self.pump_coeffs_real, \
+            self.pump_coeffs_imag = pump_coeffs_real, pump_coeffs_imag
+        if self.learn_pump_waists:
+            self.waist_pump = waist_pump
+        if self.learn_crystal_coeffs:
+            self.crystal_coeffs_real, \
+            self.crystal_coeffs_imag = crystal_coeffs_real, crystal_coeffs_imag
+        if self.learn_crystal_waists:
+            self.r_scale = r_scale
+
 
         self.model_parameters = pmap(lambda x: (
                                                 self.pump_coeffs_real,
@@ -96,16 +121,16 @@ class BaseTrainer(ABC):
         ))(np.arange(self.n_devices))
 
         print(f"Interaction length [m]: {interaction.maxZ} \n")
-        print(f"Pump   beam  basis  coefficients: \n {self.pump_coeffs_real + 1j * self.pump_coeffs_imag}\n")
-        print(f"Pump basis functions waists [um]: \n {self.waist_pump * 10}\n")
+        print(f"Pump   beam  basis  coefficients: \n {pump_coeffs_real + 1j * pump_coeffs_imag}\n")
+        print(f"Pump basis functions waists [um]: \n {waist_pump * 10}\n")
 
         if interaction.crystal_basis:
-            print(f"3D hologram  basis  coefficients: \n {self.crystal_coeffs_real + 1j * self.crystal_coeffs_imag}\n")
+            print(f"3D hologram  basis  coefficients: \n {crystal_coeffs_real + 1j * crystal_coeffs_imag}\n")
             print("3D hologram basis functions-"
-                  f"effective  waists (r_scale) [um]: \n {self.r_scale * 10}\n")
-            self.crystal_hologram = Crystal_hologram(self.crystal_coeffs_real,
-                                                     self.crystal_coeffs_imag,
-                                                     self.r_scale,
+                  f"effective  waists (r_scale) [um]: \n {r_scale * 10}\n")
+            self.crystal_hologram = Crystal_hologram(crystal_coeffs_real,
+                                                     crystal_coeffs_imag,
+                                                     r_scale,
                                                      interaction.x,
                                                      interaction.y,
                                                      interaction.crystal_max_mode1,
@@ -113,13 +138,14 @@ class BaseTrainer(ABC):
                                                      interaction.crystal_basis,
                                                      signal.lam,
                                                      signal.n,
-                                                     learn_crystal_coeffs or learn_crystal_waists)
+                                                     learn_crystal_coeffs,
+                                                     learn_crystal_waists)
         else:
             self.crystal_hologram = None
 
-        self.pump_structure = Beam_profile(self.pump_coeffs_real,
-                                           self.pump_coeffs_imag,
-                                           self.waist_pump,
+        self.pump_structure = Beam_profile(pump_coeffs_real,
+                                           pump_coeffs_imag,
+                                           waist_pump,
                                            interaction.power_pump,
                                            interaction.x,
                                            interaction.y,
@@ -130,7 +156,8 @@ class BaseTrainer(ABC):
                                            interaction.pump_basis,
                                            interaction.lam_pump,
                                            pump.n,
-                                           learn_pump_coeffs or learn_pump_waists)
+                                           learn_pump_coeffs,
+                                           learn_pump_waists)
 
         self.model = SPDCmodel(pump,
                                signal=signal,
@@ -196,24 +223,32 @@ class BaseTrainer(ABC):
                 crystal_coeffs_imag, \
                 r_scale = model_parameters
 
-                normalization = np.sqrt(np.sum(np.abs(pump_coeffs_real) ** 2 +
-                                               np.abs(pump_coeffs_imag) ** 2, 1, keepdims=True))
-                pump_coeffs_real = pump_coeffs_real / normalization
-                pump_coeffs_imag = pump_coeffs_imag / normalization
+                if self.learn_pump_coeffs:
+                    normalization = np.sqrt(np.sum(np.abs(pump_coeffs_real) ** 2 +
+                                                   np.abs(pump_coeffs_imag) ** 2, 1, keepdims=True))
+                    pump_coeffs_real = pump_coeffs_real / normalization
+                    pump_coeffs_imag = pump_coeffs_imag / normalization
 
-                print(f"Pump   beam  basis  coefficients: \n {pump_coeffs_real[0] + 1j * pump_coeffs_imag[0]}\n")
-                print(f"Pump basis functions waists [um]: \n {waist_pump[0] * 10}\n")
+                    print(f"Pump   beam  basis  coefficients: \n "
+                          f"{pump_coeffs_real[0] + 1j * pump_coeffs_imag[0]}\n")
+
+                if self.learn_pump_waists:
+                    print(f"Pump basis functions "
+                          f"waists [um]: \n {waist_pump[0] * 10}\n")
 
                 if self.crystal_hologram:
-                    normalization = np.sqrt(np.sum(np.abs(crystal_coeffs_real) ** 2 +
-                                                   np.abs(crystal_coeffs_imag) ** 2, 1, keepdims=True))
-                    crystal_coeffs_real = crystal_coeffs_real / normalization
-                    crystal_coeffs_imag = crystal_coeffs_imag / normalization
+                    if self.learn_crystal_coeffs:
+                        normalization = np.sqrt(np.sum(np.abs(crystal_coeffs_real) ** 2 +
+                                                       np.abs(crystal_coeffs_imag) ** 2, 1, keepdims=True))
+                        crystal_coeffs_real = crystal_coeffs_real / normalization
+                        crystal_coeffs_imag = crystal_coeffs_imag / normalization
 
-                    print(f"3D hologram  basis  coefficients: \n "
-                          f"{crystal_coeffs_real[0] + 1j * crystal_coeffs_imag[0]}\n")
-                    print("3D hologram basis functions-"
-                          f"effective  waists (r_scale) [um]: \n {r_scale[0] * 10}\n")
+                        print(f"3D hologram  basis  coefficients: \n "
+                              f"{crystal_coeffs_real[0] + 1j * crystal_coeffs_imag[0]}\n")
+
+                    if self.learn_crystal_waists:
+                        print("3D hologram basis functions-"
+                              f"effective  waists (r_scale) [um]: \n {r_scale[0] * 10}\n")
 
                 best_loss = loss_trn[epoch]
                 epochs_without_improvement = 0
@@ -268,14 +303,16 @@ class BaseTrainer(ABC):
         crystal_coeffs_imag, \
         r_scale = model_parameters
 
-        normalization    = np.sqrt(np.sum(np.abs(pump_coeffs_real) ** 2 + np.abs(pump_coeffs_imag) ** 2))
-        pump_coeffs_real = pump_coeffs_real / normalization
-        pump_coeffs_imag = pump_coeffs_imag / normalization
+        if self.learn_pump_coeffs:
+            normalization    = np.sqrt(np.sum(np.abs(pump_coeffs_real) ** 2 + np.abs(pump_coeffs_imag) ** 2))
+            pump_coeffs_real = pump_coeffs_real / normalization
+            pump_coeffs_imag = pump_coeffs_imag / normalization
 
         if self.crystal_hologram:
-            normalization = np.sqrt(np.sum(np.abs(crystal_coeffs_real) ** 2 + np.abs(crystal_coeffs_imag) ** 2))
-            crystal_coeffs_real = crystal_coeffs_real / normalization
-            crystal_coeffs_imag = crystal_coeffs_imag / normalization
+            if self.learn_crystal_coeffs:
+                normalization = np.sqrt(np.sum(np.abs(crystal_coeffs_real) ** 2 + np.abs(crystal_coeffs_imag) ** 2))
+                crystal_coeffs_real = crystal_coeffs_real / normalization
+                crystal_coeffs_imag = crystal_coeffs_imag / normalization
 
         model_parameters = (pump_coeffs_real,
                             pump_coeffs_imag,

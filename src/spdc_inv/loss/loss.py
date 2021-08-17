@@ -37,9 +37,10 @@ class Loss(ABC):
                             equalize=self.equalize)
 
         if observable_as_target:
-            assert loss_arr is not None, 'While observable_as_target is True, ' \
+            assert (loss_arr is not None) or \
+                   (reg_observable is not None), 'While observable_as_target is True, ' \
                                                               'a loss must be selected.\n' \
-                                                              'Got loss_arr as None.'
+                                                              'Got loss_arr and reg_observable as None.'
 
         if loss_arr is not None:
             assert len(loss_arr) == len(loss_weights), 'loss_arr and loss_weights must have equal number of elements'
@@ -240,7 +241,7 @@ class Loss(ABC):
 
         """
         projection_n_modes = observable.shape[-1]
-        sparsify_elements = onp.delete(onp.arange(projection_n_modes ** 2), elements)
+        sparsify_elements = onp.delete(onp.arange(projection_n_modes), elements)
         return np.sum(np.abs(observable[..., sparsify_elements]))
 
     @staticmethod

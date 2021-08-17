@@ -24,6 +24,12 @@ def save_training_statistics(
     crystal_coeffs_imag, \
     r_scale = model_parameters
 
+    if pump_coeffs_real is None or pump_coeffs_imag is None:
+        pump_coeffs_real, \
+        pump_coeffs_imag = interaction.initial_pump_coefficients()
+    if waist_pump is None:
+        waist_pump = interaction.initial_pump_waists()
+
     pump = open(os.path.join(logs_dir, 'pump.txt'), 'w')
     pump.write(
         type_coeffs_to_txt(
@@ -37,6 +43,13 @@ def save_training_statistics(
     )
 
     if interaction.crystal_basis:
+
+        if crystal_coeffs_real is None or crystal_coeffs_imag is None:
+            crystal_coeffs_real, \
+            crystal_coeffs_imag = interaction.initial_crystal_coefficients()
+        if r_scale is None:
+            r_scale = interaction.initial_crystal_waists()
+
         crystal = open(os.path.join(logs_dir, 'crystal.txt'), 'w')
         crystal.write(
             type_coeffs_to_txt(
@@ -209,9 +222,11 @@ def type_coeffs_to_txt(
         coeffs_real,
         coeffs_imag,
         waists):
+    sign = {'1.0': '+', '-1.0': '-'}
     print_str = f'basis: {basis}({max_mode1},{max_mode2}):\n'
     for _real, _imag, _waist in zip(coeffs_real, coeffs_imag, waists):
-        print_str += '{:.4} + j{:.4} (waist: {:.4}[um])\n'.format(_real, _imag, _waist * 10)
+        sign_imag = sign[str(onp.sign(_imag).item())]
+        print_str += '{:.4} {} j{:.4} (waist: {:.4}[um])\n'.format(_real, sign_imag, onp.abs(_imag), _waist * 10)
     return print_str
 
 

@@ -366,22 +366,32 @@ class Beam_profile(ABC):
             pump_basis: str,
             lam_pump,
             refractive_index,
-            learn_pump: bool = False,
+            learn_pump_coeffs: bool = False,
+            learn_pump_waists: bool = False,
             z: float = 0.,
     ):
+
 
         self.x = x
         self.y = y
         self.z = z
-        self.learn_pump = learn_pump
-        self.lam_pump   = lam_pump
-        self.pump_basis = pump_basis
-        self.max_mode1  = max_mode1
-        self.max_mode2  = max_mode2
-        self.power      = power_pump
-        self.crystal_dx = dx
-        self.crystal_dy = dy
-        self.refractive_index = refractive_index
+        self.learn_pump_coeffs = learn_pump_coeffs
+        self.learn_pump_waists = learn_pump_waists
+        self.learn_pump        = learn_pump_coeffs or learn_pump_waists
+        self.lam_pump          = lam_pump
+        self.pump_basis        = pump_basis
+        self.max_mode1         = max_mode1
+        self.max_mode2         = max_mode2
+        self.power             = power_pump
+        self.crystal_dx        = dx
+        self.crystal_dy        = dy
+        self.refractive_index  = refractive_index
+
+        if not self.learn_pump_coeffs:
+            self.pump_coeffs_real, \
+            self.pump_coeffs_imag = pump_coeffs_real, pump_coeffs_imag
+        if not self.learn_pump_waists:
+            self.waist_pump = waist_pump
 
         if self.pump_basis.lower() == 'lg':  # Laguerre-Gauss
             self.coef = np.zeros(len(waist_pump), dtype=np.float32)
@@ -396,7 +406,7 @@ class Beam_profile(ABC):
 
                     idx += 1
 
-            if not learn_pump:
+            if not self.learn_pump:
                 self.E = self._profile_laguerre_gauss(pump_coeffs_real, pump_coeffs_imag, waist_pump)
 
         elif self.pump_basis.lower() == "hg":  # Hermite-Gauss
@@ -411,17 +421,39 @@ class Beam_profile(ABC):
 
                     idx += 1
 
-            if not learn_pump:
+            if not self.learn_pump:
                 self.E = self._profile_hermite_gauss(pump_coeffs_real, pump_coeffs_imag, waist_pump)
 
 
     def create_profile(self, pump_coeffs_real, pump_coeffs_imag, waist_pump):
         if self.learn_pump:
             if self.pump_basis.lower() == 'lg':  # Laguerre-Gauss
-                self.E = self._profile_laguerre_gauss(pump_coeffs_real, pump_coeffs_imag, waist_pump)
+                if self.learn_pump_coeffs and self.learn_pump_waists:
+                    self.E = self._profile_laguerre_gauss(
+                        pump_coeffs_real, pump_coeffs_imag, waist_pump
+                    )
+                elif self.learn_pump_coeffs:
+                    self.E = self._profile_laguerre_gauss(
+                        pump_coeffs_real, pump_coeffs_imag, self.waist_pump
+                    )
+                else:
+                    self.E = self._profile_laguerre_gauss(
+                        self.pump_coeffs_real, self.pump_coeffs_imag, waist_pump
+                    )
 
             elif self.pump_basis.lower() == 'hg':  # Hermite-Gauss
-                self.E = self._profile_hermite_gauss(pump_coeffs_real, pump_coeffs_imag, waist_pump)
+                if self.learn_pump_coeffs and self.learn_pump_waists:
+                    self.E = self._profile_hermite_gauss(
+                        pump_coeffs_real, pump_coeffs_imag, waist_pump
+                    )
+                elif self.learn_pump_coeffs:
+                    self.E = self._profile_hermite_gauss(
+                        pump_coeffs_real, pump_coeffs_imag, self.waist_pump
+                    )
+                else:
+                    self.E = self._profile_hermite_gauss(
+                        self.pump_coeffs_real, self.pump_coeffs_imag, waist_pump
+                    )
 
     def _profile_laguerre_gauss(
             self,
@@ -480,23 +512,33 @@ class Crystal_hologram(ABC):
             crystal_basis,
             lam_signal,
             refractive_index,
-            learn_crystal: bool = False,
+            learn_crystal_coeffs: bool = False,
+            learn_crystal_waists: bool = False,
             z: float = 0.,
     ):
 
         self.x = x
         self.y = y
         self.z = z
-        self.learn_crystal        = learn_crystal
+        self.learn_crystal_coeffs = learn_crystal_coeffs
+        self.learn_crystal_waists = learn_crystal_waists
+        self.learn_crystal        = learn_crystal_coeffs or learn_crystal_waists
         self.refractive_index     = refractive_index
         self.lam_signal           = lam_signal
         self.crystal_basis        = crystal_basis
         self.max_mode1 = max_mode1
         self.max_mode2 = max_mode2
 
+        if not self.learn_crystal_coeffs:
+            self.crystal_coeffs_real, \
+            self.crystal_coeffs_imag = crystal_coeffs_real, crystal_coeffs_imag
+        if not self.learn_crystal_waists:
+            self.r_scale = r_scale
+
+
 
         if crystal_basis.lower() == 'ft':  # Fourier-Taylor
-            if not learn_crystal:
+            if not self.learn_crystal:
                 self.crystal_profile = self._profile_fourier_taylor(crystal_coeffs_real, crystal_coeffs_imag, r_scale)
 
         elif crystal_basis.lower() == 'fb':  # Fourier-Bessel
@@ -513,7 +555,7 @@ class Crystal_hologram(ABC):
                     )
                     idx += 1
 
-            if not learn_crystal:
+            if not self.learn_crystal:
                 self.crystal_profile = self._profile_fourier_bessel(crystal_coeffs_real, crystal_coeffs_imag)
 
         elif crystal_basis.lower() == 'lg':  # Laguerre-Gauss
@@ -528,7 +570,7 @@ class Crystal_hologram(ABC):
                     )
                     idx += 1
 
-            if not learn_crystal:
+            if not self.learn_crystal:
                 self.crystal_profile = self._profile_laguerre_gauss(crystal_coeffs_real, crystal_coeffs_imag, r_scale)
 
         elif crystal_basis.lower() == 'hg':  # Hermite-Gauss
@@ -545,7 +587,7 @@ class Crystal_hologram(ABC):
 
                     idx += 1
 
-            if not learn_crystal:
+            if not self.learn_crystal:
                 self.crystal_profile = self._profile_hermite_gauss(crystal_coeffs_real, crystal_coeffs_imag, r_scale)
 
     def create_profile(
@@ -556,16 +598,56 @@ class Crystal_hologram(ABC):
     ):
         if self.learn_crystal:
             if self.crystal_basis.lower() == 'ft':  # Fourier-Taylor
-                self.crystal_profile = self._profile_fourier_taylor(crystal_coeffs_real, crystal_coeffs_imag, r_scale)
+                if self.learn_crystal_coeffs and self.learn_crystal_waists:
+                    self.crystal_profile = self._profile_fourier_taylor(
+                        crystal_coeffs_real, crystal_coeffs_imag, r_scale
+                    )
+                elif self.learn_crystal_coeffs:
+                    self.crystal_profile = self._profile_fourier_taylor(
+                        crystal_coeffs_real, crystal_coeffs_imag, self.r_scale
+                    )
+                else:
+                    self.crystal_profile = self._profile_fourier_taylor(
+                        self.crystal_coeffs_real, self.crystal_coeffs_imag, r_scale
+                    )
 
             elif self.crystal_basis.lower() == 'fb':  # Fourier-Bessel
-                self.crystal_profile = self._profile_fourier_bessel(crystal_coeffs_real, crystal_coeffs_imag)
+                if self.learn_crystal_coeffs:
+                    self.crystal_profile = self._profile_fourier_bessel(
+                        crystal_coeffs_real, crystal_coeffs_imag
+                    )
+                else:
+                    self.crystal_profile = self._profile_fourier_bessel(
+                        self.crystal_coeffs_real, self.crystal_coeffs_imag
+                    )
 
             elif self.crystal_basis.lower() == 'lg':  # Laguerre-Gauss
-                self.crystal_profile = self._profile_laguerre_gauss(crystal_coeffs_real, crystal_coeffs_imag, r_scale)
+                if self.learn_crystal_coeffs and self.learn_crystal_waists:
+                    self.crystal_profile = self._profile_laguerre_gauss(
+                        crystal_coeffs_real, crystal_coeffs_imag, r_scale
+                    )
+                elif self.learn_crystal_coeffs:
+                    self.crystal_profile = self._profile_laguerre_gauss(
+                        crystal_coeffs_real, crystal_coeffs_imag, self.r_scale
+                    )
+                else:
+                    self.crystal_profile = self._profile_laguerre_gauss(
+                        self.crystal_coeffs_real, self.crystal_coeffs_imag, r_scale
+                    )
 
             elif self.crystal_basis.lower() == 'hg':  # Hermite-Gauss
-                self.crystal_profile = self._profile_hermite_gauss(crystal_coeffs_real, crystal_coeffs_imag, r_scale)
+                if self.learn_crystal_coeffs and self.learn_crystal_waists:
+                    self.crystal_profile = self._profile_hermite_gauss(
+                        crystal_coeffs_real, crystal_coeffs_imag, r_scale
+                    )
+                elif self.learn_crystal_coeffs:
+                    self.crystal_profile = self._profile_hermite_gauss(
+                        crystal_coeffs_real, crystal_coeffs_imag, self.r_scale
+                    )
+                else:
+                    self.crystal_profile = self._profile_hermite_gauss(
+                        self.crystal_coeffs_real, self.crystal_coeffs_imag, r_scale
+                    )
 
     def _profile_fourier_taylor(
             self,

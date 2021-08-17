@@ -93,21 +93,21 @@ class SPDCmodel(ABC):
                            )
 
         # Propagate generated fields back to the middle of the crystal
-        signal_out = propagate(signal_out,
+        signal_out_back_prop = propagate(signal_out,
                                self.interaction.x,
                                self.interaction.y,
                                self.signal_f.k,
                                self.DeltaZ
                                ) * np.exp(-1j * self.signal_f.k * self.DeltaZ)
 
-        idler_out  = propagate(idler_out,
+        idler_out_back_prop  = propagate(idler_out,
                                self.interaction.x,
                                self.interaction.y,
                                self.idler_f.k,
                                self.DeltaZ
                                ) * np.exp(-1j * self.idler_f.k * self.DeltaZ)
 
-        idler_vac  = propagate(idler_vac,
+        idler_vac_back_prop  = propagate(idler_vac,
                                self.interaction.x,
                                self.interaction.y,
                                self.idler_f.k,
@@ -119,6 +119,11 @@ class SPDCmodel(ABC):
                 signal_out,
                 idler_out,
                 idler_vac,
+                signal_out_back_prop,
+                idler_out_back_prop,
+                idler_vac_back_prop,
+
+
             )
 
         observables = self.get_observables(coincidence_rate_projections, tomography_matrix_projections)
@@ -129,7 +134,10 @@ class SPDCmodel(ABC):
             self,
             signal_out,
             idler_out,
-            idler_vac
+            idler_vac,
+            signal_out_back_prop,
+            idler_out_back_prop,
+            idler_vac_back_prop,
     ):
         """
         the function calculates first order correlation functions.
@@ -152,6 +160,9 @@ class SPDCmodel(ABC):
                 signal_out,
                 idler_out,
                 idler_vac,
+                signal_out_back_prop,
+                idler_out_back_prop,
+                idler_vac_back_prop,
                 self.projection_coincidence_rate.basis_arr,
                 self.projection_coincidence_rate.projection_n_modes1,
                 self.projection_coincidence_rate.projection_n_modes2
@@ -162,6 +173,9 @@ class SPDCmodel(ABC):
                 signal_out,
                 idler_out,
                 idler_vac,
+                signal_out_back_prop,
+                idler_out_back_prop,
+                idler_vac_back_prop,
                 self.projection_tomography_matrix.basis_arr,
                 self.projection_tomography_matrix.projection_n_state1,
                 self.projection_tomography_matrix.projection_n_state2
@@ -174,6 +188,9 @@ class SPDCmodel(ABC):
             signal_out,
             idler_out,
             idler_vac,
+            signal_out_back_prop,
+            idler_out_back_prop,
+            idler_vac_back_prop,
             basis_arr,
             projection_n_1,
             projection_n_2
@@ -187,6 +204,9 @@ class SPDCmodel(ABC):
         signal_out
         idler_out
         idler_vac
+        signal_out_back_prop
+        idler_out_back_prop
+        idler_vac_back_prop
         basis_arr
         projection_n_1
         projection_n_2
@@ -201,6 +221,9 @@ class SPDCmodel(ABC):
                 signal_out,
                 idler_out,
                 idler_vac,
+                signal_out_back_prop,
+                idler_out_back_prop,
+                idler_vac_back_prop,
                 basis_arr,
                 projection_n_1,
                 projection_n_2
@@ -220,13 +243,16 @@ class SPDCmodel(ABC):
             signal_out,
             idler_out,
             idler_vac,
+            signal_out_back_prop,
+            idler_out_back_prop,
+            idler_vac_back_prop,
             basis_arr,
             projection_n_1,
             projection_n_2
     ):
 
         signal_beam_decompose = decompose(
-            signal_out,
+            signal_out_back_prop,
             basis_arr
         ).reshape(
             self.N_device,
@@ -234,7 +260,7 @@ class SPDCmodel(ABC):
             projection_n_2)
 
         idler_beam_decompose = decompose(
-            idler_out,
+            idler_out_back_prop,
             basis_arr
         ).reshape(
             self.N_device,
@@ -242,7 +268,7 @@ class SPDCmodel(ABC):
             projection_n_2)
 
         idler_vac_decompose = decompose(
-            idler_vac,
+            idler_vac_back_prop,
             basis_arr
         ).reshape(
             self.N_device,

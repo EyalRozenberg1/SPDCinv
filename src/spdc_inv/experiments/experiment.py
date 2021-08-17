@@ -124,7 +124,7 @@ def run_experiment(
     loss_arr: if an observable in observable_vec is True, the following sequence of loss functions are used.
               The target observables in the 'target' folder are used.
               optional: l1, l2, kl, bhattacharyya, trace_distance, None
-              if None (for any observable), the the loss using target observable will be ignored, while the rest of the
+              if None (for any observable), the loss using target observable will be ignored, while the rest of the
               loss options, i.e reg_observable, can be still applied.
     loss_weights: the sequence loss_arr is weighted by loss_weights (for each observable)
     reg_observable: if an observable in observable_vec is True, the following sequence
@@ -529,10 +529,10 @@ if __name__ == "__main__":
         'learn_mode': True,
         'learn_pump_coeffs': True,
         'learn_pump_waists':  True,
-        'learn_crystal_coeffs':  False,
-        'learn_crystal_waists':  False,
+        'learn_crystal_coeffs':  True,
+        'learn_crystal_waists':  True,
         'keep_best':  True,
-        'n_epochs':  555,
+        'n_epochs':  500,
         'N_train':  1000,
         'N_inference':  4000,
         'target': 'qutrit',
@@ -550,8 +550,8 @@ if __name__ == "__main__":
             TOMOGRAPHY_MATRIX: None
         },
         'loss_weights': {
-            COINCIDENCE_RATE: (1., .5),
-            DENSITY_MATRIX: None,
+            COINCIDENCE_RATE: (1.,),
+            DENSITY_MATRIX: (1.,),
             TOMOGRAPHY_MATRIX: None
         },
         'reg_observable': {
@@ -565,7 +565,7 @@ if __name__ == "__main__":
             TOMOGRAPHY_MATRIX: None
         },
         'reg_observable_elements': {
-            COINCIDENCE_RATE: ([1, 10, 12, 21], [1, 10, 12, 21]),
+            COINCIDENCE_RATE: ([30, 40, 50], [30, 40, 50]),
             DENSITY_MATRIX: None,
             TOMOGRAPHY_MATRIX: None
         },
@@ -574,40 +574,41 @@ if __name__ == "__main__":
     optimizer_params = {
         'l2_reg': 0.,
         'optimizer': 'adam',
-        'exp_decay_lr': True,
+        'exp_decay_lr': False,
         'step_size': 0.05,
         'decay_steps': 50,
         'decay_rate': 0.5,
     }
 
     interaction_params = {
-        'pump_basis': 'HG',
+        'pump_basis': 'LG',
         'pump_max_mode1': 1,
-        'pump_max_mode2': 5,
+        'pump_max_mode2': 4,
         'initial_pump_coefficient': 'custom',
-        'custom_pump_coefficient': {REAL: {0: 1., 1: 1., 2: 1., 3: 1., 4: 1.}, IMAG: {0: 0., 1: 0., 2: 0., 3: 0., 4: 0.}},
+        'custom_pump_coefficient': {REAL: {0: 0., 1: 0., 2: 0., 3: 0., 4: 1., 5: 0., 6: 0., 7: 0., 8: 0.},
+                                    IMAG: {0: 0., 1: 0., 2: 0.}},
         'pump_coefficient_path': None,
         'initial_pump_waist': 'waist_pump0',
         'pump_waists_path': None,
-        'crystal_basis': None,
-        'crystal_max_mode1': 2,
-        'crystal_max_mode2': 3,
+        'crystal_basis': 'LG',
+        'crystal_max_mode1': 1,
+        'crystal_max_mode2': 2,
         'initial_crystal_coefficient': 'custom',
-        'custom_crystal_coefficient': {REAL: {-1: 1, 0: 1, 1: 1}, IMAG: {-1: 1, 0: 1, 1: 1}},
+        'custom_crystal_coefficient': {REAL: {0: 0., 1: 0., 2: 1.}, IMAG: {0: 0., 1: 0., 2: 0.}},
         'crystal_coefficient_path': None,
         'initial_crystal_waist': 'r_scale0',
         'crystal_waists_path': None,
         'lam_pump': 405e-9,
         'crystal_str': 'ktp',
         'power_pump': 1e-3,
-        'waist_pump0': None,
+        'waist_pump0': 40e-6,
         'r_scale0': 40e-6,
         'dx': 4e-6,
         'dy': 4e-6,
         'dz': 10e-6,
-        'maxX': 400e-6,
-        'maxY': 400e-6,
-        'maxZ': 5e-3,
+        'maxX': 120e-6,
+        'maxY': 120e-6,
+        'maxZ': 1e-3,
         'R': 0.1,
         'Temperature': 50,
         'pump_polarization': 'y',
@@ -619,9 +620,9 @@ if __name__ == "__main__":
     }
 
     projection_params = {
-        'coincidence_projection_basis': 'HG',
+        'coincidence_projection_basis': 'LG',
         'coincidence_projection_max_mode1': 1,
-        'coincidence_projection_max_mode2': 10,
+        'coincidence_projection_max_mode2': 4,
         'coincidence_projection_waist': None,
         'coincidence_projection_wavelength': None,
         'coincidence_projection_polarization': 'y',
@@ -634,16 +635,16 @@ if __name__ == "__main__":
         'tomography_projection_polarization': 'y',
         'tomography_projection_z': 0.,
         'tomography_relative_phase': [0, onp.pi, 3 * (onp.pi / 2), onp.pi / 2],
-        'tomography_quantum_state': 'qubit',
+        'tomography_quantum_state': 'qutrit',
         'tau': 1e-9,
     }
 
     run_experiment(
-        run_name='hg_ququad',
+        run_name='test',
         seed=42,
         JAX_ENABLE_X64='True',
         minimal_GPU_memory=False,
-        CUDA_VISIBLE_DEVICES='0, 1, 2, 3',
+        CUDA_VISIBLE_DEVICES='0, 1',
         **learning_params,
         **loss_params,
         **optimizer_params,
