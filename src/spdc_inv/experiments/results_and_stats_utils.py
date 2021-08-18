@@ -24,31 +24,22 @@ def save_training_statistics(
     crystal_coeffs_imag, \
     r_scale = model_parameters
 
-    if pump_coeffs_real is None or pump_coeffs_imag is None:
-        pump_coeffs_real, \
-        pump_coeffs_imag = interaction.initial_pump_coefficients()
-    if waist_pump is None:
-        waist_pump = interaction.initial_pump_waists()
-
     pump = open(os.path.join(logs_dir, 'pump.txt'), 'w')
     pump.write(
         type_coeffs_to_txt(
             interaction.pump_basis,
             interaction.pump_max_mode1,
             interaction.pump_max_mode2,
-            pump_coeffs_real[0],
-            pump_coeffs_imag[0],
-            waist_pump[0],
+            pump_coeffs_real[0] if pump_coeffs_real is not None
+            else interaction.initial_pump_coefficients()[0],
+            pump_coeffs_imag[0] if pump_coeffs_imag is not None
+            else interaction.initial_pump_coefficients()[1],
+            waist_pump[0] if waist_pump is not None
+            else interaction.initial_pump_waists(),
         )
     )
 
     if interaction.crystal_basis:
-
-        if crystal_coeffs_real is None or crystal_coeffs_imag is None:
-            crystal_coeffs_real, \
-            crystal_coeffs_imag = interaction.initial_crystal_coefficients()
-        if r_scale is None:
-            r_scale = interaction.initial_crystal_waists()
 
         crystal = open(os.path.join(logs_dir, 'crystal.txt'), 'w')
         crystal.write(
@@ -56,9 +47,12 @@ def save_training_statistics(
                 interaction.crystal_basis,
                 interaction.crystal_max_mode1,
                 interaction.crystal_max_mode2,
-                crystal_coeffs_real[0],
-                crystal_coeffs_imag[0],
-                r_scale[0],
+                crystal_coeffs_real[0] if crystal_coeffs_real is not None
+                else interaction.initial_crystal_coefficients()[0],
+                crystal_coeffs_imag[0] if crystal_coeffs_imag is not None
+                else interaction.initial_crystal_coefficients()[1],
+                r_scale[0] if r_scale is not None
+                else interaction.initial_crystal_waists(),
             )
         )
 
@@ -74,13 +68,26 @@ def save_training_statistics(
     plt.savefig(os.path.join(logs_dir, 'loss'))
     plt.close()
 
-    np.save(os.path.join(logs_dir, 'parameters_pump_real.npy'), pump_coeffs_real[0])
-    np.save(os.path.join(logs_dir, 'parameters_pump_imag.npy'), pump_coeffs_imag[0])
-    np.save(os.path.join(logs_dir, 'parameters_pump_waists.npy'), waist_pump[0])
+    np.save(os.path.join(logs_dir, 'parameters_pump_real.npy'),
+            pump_coeffs_real[0] if pump_coeffs_real is not None
+            else interaction.initial_pump_waists()[0])
+    np.save(os.path.join(logs_dir, 'parameters_pump_imag.npy'),
+            pump_coeffs_imag[0] if pump_coeffs_imag is not None
+            else interaction.initial_pump_waists()[1])
+    np.save(os.path.join(logs_dir, 'parameters_pump_waists.npy'),
+            waist_pump[0] if waist_pump is not None
+            else interaction.initial_pump_waists())
     if interaction.crystal_basis is not None:
-        np.save(os.path.join(logs_dir, 'parameters_crystal_real.npy'), crystal_coeffs_real[0])
-        np.save(os.path.join(logs_dir, 'parameters_crystal_imag.npy'), crystal_coeffs_imag[0])
-        np.save(os.path.join(logs_dir, 'parameters_crystal_effective_waists.npy'), r_scale[0])
+        np.save(os.path.join(logs_dir, 'parameters_crystal_real.npy'),
+                crystal_coeffs_real[0] if crystal_coeffs_real is not None
+                else interaction.initial_crystal_coefficients()[0])
+        np.save(os.path.join(logs_dir, 'parameters_crystal_imag.npy'),
+                crystal_coeffs_imag[0] if crystal_coeffs_imag is not None
+                else interaction.initial_crystal_coefficients()[1])
+        np.save(os.path.join(logs_dir, 'parameters_crystal_effective_waists.npy'),
+                r_scale[0] if r_scale is not None
+                else interaction.initial_crystal_waists()
+                )
 
     return
 
