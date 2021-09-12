@@ -70,10 +70,10 @@ def save_training_statistics(
 
     np.save(os.path.join(logs_dir, 'parameters_pump_real.npy'),
             pump_coeffs_real[0] if pump_coeffs_real is not None
-            else interaction.initial_pump_waists()[0])
+            else interaction.initial_pump_coefficients()[0])
     np.save(os.path.join(logs_dir, 'parameters_pump_imag.npy'),
             pump_coeffs_imag[0] if pump_coeffs_imag is not None
-            else interaction.initial_pump_waists()[1])
+            else interaction.initial_pump_coefficients()[1])
     np.save(os.path.join(logs_dir, 'parameters_pump_waists.npy'),
             waist_pump[0] if waist_pump is not None
             else interaction.initial_pump_waists())
@@ -229,7 +229,7 @@ def type_coeffs_to_txt(
         coeffs_real,
         coeffs_imag,
         waists):
-    sign = {'1.0': '+', '-1.0': '-'}
+    sign = {'1.0': '+', '-1.0': '-', '0.0': '+'}
     print_str = f'basis: {basis}({max_mode1},{max_mode2}):\n'
     for _real, _imag, _waist in zip(coeffs_real, coeffs_imag, waists):
         sign_imag = sign[str(onp.sign(_imag).item())]
