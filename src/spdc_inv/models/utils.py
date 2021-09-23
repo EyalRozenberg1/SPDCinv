@@ -184,7 +184,7 @@ def propagate_dz(
     E_pump = propagate(pump_profile, x, y, pump_k, z) * np.exp(-1j * pump_k * z)
 
     # crystal slab:
-    PP = PP_crystal_slab(poling_period, z, crystal_hologram, infer)
+    PP = PP_crystal_slab(poling_period, z, crystal_hologram, inference=None)
 
     # coupled wave equations - split step
     # signal:

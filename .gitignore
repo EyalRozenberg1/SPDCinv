@@ -12,3 +12,9 @@ __pycache__/
 *.asv
 
 *.zip
+
+results/
+
+logs/
+
+.DS_Store
