@@ -150,14 +150,16 @@ def coincidence_rate_plots(
         Signal,
         Idler,
 ):
-    coincidence_rate = unwrap_kron(coincidence_rate,
-                                   projection_coincidence_rate.projection_n_modes1,
-                                   projection_coincidence_rate.projection_n_modes2)
+    # coincidence_rate = unwrap_kron(coincidence_rate,
+    #                                projection_coincidence_rate.projection_n_modes1,
+    #                                projection_coincidence_rate.projection_n_modes2)
+    coincidence_rate = coincidence_rate[0, :].\
+        reshape(projection_coincidence_rate.projection_n_modes2, projection_coincidence_rate.projection_n_modes2)
 
     # Compute and plot reduced coincidence_rate
     g1_ss_normalization = G1_Normalization(Signal.w)
     g1_ii_normalization = G1_Normalization(Idler.w)
-    coincidence_rate_reduced = coincidence_rate[0, :, 0, :] * \
+    coincidence_rate_reduced = coincidence_rate * \
                                projection_coincidence_rate.tau / (g1_ii_normalization * g1_ss_normalization)
 
     # plot coincidence_rate 2d
@@ -178,15 +180,18 @@ def tomography_matrix_plots(
         Idler,
 ):
 
-    tomography_matrix = unwrap_kron(tomography_matrix,
-                                    projection_tomography_matrix.projection_n_state1,
-                                    projection_tomography_matrix.projection_n_state2)
+    # tomography_matrix = unwrap_kron(tomography_matrix,
+    #                                 projection_tomography_matrix.projection_n_state1,
+    #                                 projection_tomography_matrix.projection_n_state2)
+
+    tomography_matrix = tomography_matrix[0, :].\
+        reshape(projection_tomography_matrix.projection_n_state2, projection_tomography_matrix.projection_n_state2)
 
     # Compute and plot reduced tomography_matrix
     g1_ss_normalization = G1_Normalization(Signal.w)
     g1_ii_normalization = G1_Normalization(Idler.w)
 
-    tomography_matrix_reduced = tomography_matrix[0, :, 0, :] * \
+    tomography_matrix_reduced = tomography_matrix * \
                                 projection_tomography_matrix.tau / (g1_ii_normalization * g1_ss_normalization)
 
     # plot tomography_matrix 2d
