@@ -18,6 +18,7 @@ h_bar   = 1.054571800e-34  # [m^2 kg / s], taken from http://physics.nist.gov/cg
 G1_Normalization        = lambda w: h_bar * w / (2 * eps0 * c)
 I                       = lambda A, n: 2 * n * eps0 * c * np.abs(A) ** 2  # Intensity
 Power2D                 = lambda A, n, dx, dy: np.sum(I(A, n)) * dx * dy
+E0                      = lambda P, n, W0: np.sqrt(P / (n * c * eps0 * np.pi * W0 ** 2))  # Calc amplitude
 
 # Compute the idler wavelength given pump and signal
 SFG_idler_wavelength    = lambda lambda_p, lambda_s: lambda_p * lambda_s / (lambda_s - lambda_p)

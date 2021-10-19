@@ -9,6 +9,7 @@ from spdc_inv.utils.utils import DensMat
 from spdc_inv.training.utils import projection_matrix_calc, projection_matrices_calc, \
     decompose, fix_power, get_qubit_density_matrix, get_qutrit_density_matrix
 
+Fourier = lambda A: (np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A))))
 
 class SPDCmodel(ABC):
     """
@@ -251,29 +252,34 @@ class SPDCmodel(ABC):
             projection_n_2
     ):
 
-        signal_beam_decompose = decompose(
-            signal_out_back_prop,
-            basis_arr
-        ).reshape(
-            self.N_device,
-            projection_n_1,
-            projection_n_2)
+        # signal_beam_decompose = decompose(
+        #     signal_out_back_prop,
+        #     basis_arr
+        # ).reshape(
+        #     self.N_device,
+        #     projection_n_1,
+        #     projection_n_2)
+        #
+        # idler_beam_decompose = decompose(
+        #     idler_out_back_prop,
+        #     basis_arr
+        # ).reshape(
+        #     self.N_device,
+        #     projection_n_1,
+        #     projection_n_2)
+        #
+        # idler_vac_decompose = decompose(
+        #     idler_vac_back_prop,
+        #     basis_arr
+        # ).reshape(
+        #     self.N_device,
+        #     projection_n_1,
+        #     projection_n_2)
 
-        idler_beam_decompose = decompose(
-            idler_out_back_prop,
-            basis_arr
-        ).reshape(
-            self.N_device,
-            projection_n_1,
-            projection_n_2)
+        signal_beam_decompose = Fourier(signal_out_back_prop)
+        idler_beam_decompose = Fourier(idler_out_back_prop)
+        idler_vac_decompose = Fourier(idler_vac_back_prop)
 
-        idler_vac_decompose = decompose(
-            idler_vac_back_prop,
-            basis_arr
-        ).reshape(
-            self.N_device,
-            projection_n_1,
-            projection_n_2)
 
         # say there are no higher modes by normalizing the power
         signal_beam_decompose = fix_power(signal_beam_decompose, signal_out)

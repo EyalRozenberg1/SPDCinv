@@ -1,6 +1,6 @@
 from abc import ABC
 from jax import jit
-from spdc_inv.utils.utils import h_bar, eps0, c
+from spdc_inv.utils.utils import h_bar, eps0, c, E0
 from spdc_inv.utils.utils import PP_crystal_slab
 
 import jax.numpy as np
@@ -111,6 +111,9 @@ def crystal_prop(
             z,
             dz,
             pump.k,
+            pump.n,
+            interaction.waist_pump0,
+            pump.power,
             signal_field.k,
             idler_field.k,
             signal_field.kappa,
@@ -136,6 +139,9 @@ def propagate_dz(
         z,
         dz,
         pump_k,
+        pump_n,
+        pump_waist,
+        pump_power,
         signal_field_k,
         idler_field_k,
         signal_field_kappa,
@@ -181,7 +187,11 @@ def propagate_dz(
     """
 
     # pump beam:
-    E_pump = propagate(pump_profile, x, y, pump_k, z) * np.exp(-1j * pump_k * z)
+    # E_pump = propagate(pump_profile, x, y, pump_k, z) * np.exp(-1j * pump_k * z)
+
+    # E_pump = Gaussian_beam_calc_angle(pump_power, x, y, pump_k, pump_n, pump_waist, z, 2, 237e-6, 0) + np.exp(
+    #     1j * np.pi) * Gaussian_beam_calc_angle(pump_power, x, y, pump_k, pump_n, pump_waist, z, -2, -237e-6, 30000e-6)
+    E_pump = Gaussian_beam_calc_angle(pump_power, x, y, pump_k, pump_n, pump_waist, z, 0, 0, 0)
 
     # crystal slab:
     PP = PP_crystal_slab(poling_period, z, crystal_hologram, inference=None)
@@ -249,3 +259,17 @@ def propagate(A, x, y, k, dz):
     Eout = np.fft.ifft2(F)  # [in real space]. E1 is the two-dimensional INVERSE discrete Fourier transform (DFT) of F1
 
     return Eout
+
+@jit
+def Gaussian_beam_calc_angle(power, x, y, k, n, waist, z_point, angledeg, shiftX, zShift):
+    X, Y   = np.meshgrid(x, y, indexing='ij')
+    beam_b = waist ** 2 * k
+    xi     = 2 * (z_point - zShift) / beam_b
+
+    tau = 1/(1+1j*xi)
+    kz  = k*np.sqrt(1/(1+(np.tan(angledeg*0.017)**2)))
+    kx  = np.tan(0.017*angledeg)*kz
+    E   = E0(power, n, waist) * tau * np.exp(-((X - shiftX) ** 2 + (Y) ** 2) / (waist ** 2) * tau) * np.exp(
+        1j * kz * (z_point - zShift)) * np.exp(1j * kx * (X - shiftX))
+
+    return E

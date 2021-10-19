@@ -64,7 +64,7 @@ class Projection_coincidence_rate(ABC):
         if wavelength is None:
             wavelength = signal_wavelength
 
-        assert projection_basis.lower() in ['lg', 'hg'], 'The projection basis is LG or HG ' \
+        assert projection_basis.lower() in ['lg', 'hg', 'fourier'], 'The projection basis is LG or HG ' \
                                                          'basis functions only'
 
         self.projection_basis = projection_basis
@@ -75,9 +75,12 @@ class Projection_coincidence_rate(ABC):
         if projection_basis.lower() == 'lg':
             self.projection_n_modes1 = max_mode1
             self.projection_n_modes2 = 2 * max_mode2 + 1
-        else:
+        elif projection_basis.lower() == 'hg':
             self.projection_n_modes1 = max_mode1
             self.projection_n_modes2 = max_mode2
+        else:
+            self.projection_n_modes1 = len(crystal_x)
+            self.projection_n_modes2 = len(crystal_y)
 
         # Total number of projection modes
         self.projection_n_modes = self.projection_n_modes1 * self.projection_n_modes2

@@ -249,7 +249,8 @@ def crystal_prop(Pump,Siganl_field,Idler_field,crystal):
     
     for z in crystal.z: 
         #pump beam:
-        E_pump   = Gaussian_beam_calc_angle(Pump,crystal,z, 2, 237e-6, 0) + np.exp(1j*pi)*Gaussian_beam_calc_angle(Pump,crystal,z, -2, -237e-6, 30000e-6) 
+        # E_pump   = Gaussian_beam_calc_angle(Pump,crystal,z, 2, 237e-6, 0) + np.exp(1j*pi)*Gaussian_beam_calc_angle(Pump,crystal,z, -2, -237e-6, 30000e-6)
+        E_pump   = Gaussian_beam_calc_angle(Pump, crystal, z,  0,  0, 0)
         #crystal slab:
         PP           = crystal.slab(crystal.poling_period,z)
         

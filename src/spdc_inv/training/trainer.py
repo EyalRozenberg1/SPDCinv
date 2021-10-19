@@ -9,6 +9,7 @@ from jax import value_and_grad
 from jax import lax
 from functools import partial
 from jax import numpy as np
+from jax.lax import stop_gradient
 from spdc_inv.utils.utils import Crystal_hologram, Beam_profile
 from spdc_inv.models.spdc_model import SPDCmodel
 from spdc_inv.utils.defaults import COINCIDENCE_RATE, DENSITY_MATRIX, TOMOGRAPHY_MATRIX
@@ -181,7 +182,7 @@ class BaseTrainer(ABC):
         # seed vacuum samples for each gpu
         self.key, subkey = random.split(self.key)
         keys = random.split(subkey, self.n_devices)
-        observables = pmap(self.model.forward, axis_name='device')(self.model_parameters, keys)
+        observables = pmap(self.model.forward, axis_name='device')(stop_gradient(self.model_parameters), keys)
         return observables
 
     def fit(self):

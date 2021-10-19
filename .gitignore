@@ -18,3 +18,5 @@ results/
 logs/
 
 .DS_Store
+
+*.pyc

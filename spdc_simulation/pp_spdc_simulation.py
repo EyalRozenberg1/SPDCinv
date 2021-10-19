@@ -29,7 +29,7 @@ start_time = time.time()
 ###########################################
 #initialize crystal and structure arrays
 d33            = 23.4e-12; # in meter/Volt.[LiNbO3]
-PP_SLT         = Crystal(10e-6,10e-6,1e-6,500e-6,500e-6,20e-3,nz_MgCLN_Gayer,PP_crystal_slab,d33) # dx,dy,dz,MaxX,MaxY,MaxZ,Ref_ind,slab_function
+PP_SLT         = Crystal(4e-6,4e-6,10e-6,120e-6,120e-6,1e-3,nz_MgCLN_Gayer,PP_crystal_slab,d33) # dx,dy,dz,MaxX,MaxY,MaxZ,Ref_ind,slab_function
 #PP_SLT         = Crystal(10e-6,10e-6,1e-6,400e-6,400e-6,20e-3,nz_MgCLN_Gayer,PP_crystal_slab,d33) # dx,dy,dz,MaxX,MaxY,MaxZ,Ref_ind,slab_function
 R              = 0.1 # distance to far-field screenin meters
 Temperature    = 50
@@ -38,7 +38,7 @@ Temperature    = 50
 # Interacting wavelengths
 ##########################################
 #Initiialize the interacting beams
-Pump        = Beam(532e-9,PP_SLT,Temperature,120e-6,0.03)  # wavelength, crystal, tmperature, waist, power
+Pump        = Beam(532e-9,PP_SLT,Temperature,40e-6,0.03)  # wavelength, crystal, tmperature, waist, power
 Signal      = Beam(1064e-9,PP_SLT,Temperature)
 Idler       = Beam(SFG_idler_wavelength(Pump.lam,Signal.lam),PP_SLT,Temperature)
 
@@ -54,7 +54,7 @@ DO_POLAR            = 0 #Flag for moving to polar coordinates
 ##########################################
 # Run N simulations through crystal
 ##########################################
-N           = 5 #number of iterations
+N           = 30 #number of iterations
 
 #initialize
 G1          = G1_mat()
@@ -173,19 +173,20 @@ FFcoordinate_axis_Idler  = 1e3*FF_position_axis(PP_SLT.dx,PP_SLT.MaxX,Idler.k/Id
 FFcoordinate_axis_Signal  = 1e3*FF_position_axis(PP_SLT.dx,PP_SLT.MaxX,Signal.k/Signal.n, R)
 
 extents_FFcoordinates_signal = [min(FFcoordinate_axis_Signal), max(FFcoordinate_axis_Signal), min(FFcoordinate_axis_Signal), max(FFcoordinate_axis_Signal)]
-extents_FFcoordinates_idler  = [min(FFcoordinate_axis_Idler), max(FFcoordinate_axis_Idler), min(FFcoordinate_axis_Idler), max(FFcoordinate_axis_Idler)]
+# extents_FFcoordinates_idler  = [min(FFcoordinate_axis_Idler), max(FFcoordinate_axis_Idler), min(FFcoordinate_axis_Idler), max(FFcoordinate_axis_Idler)]
 
 #calculate theoretical angle for signal
-theoretical_angle = np.arccos((Pump.k-PP_SLT.poling_period)/2/Signal.k) 
-theoretical_angle = np.arcsin(Signal.n*np.sin(theoretical_angle)/1)  #Snell's law
-
-plt.figure()
-plt.imshow(np.real(P_ss *1e-6),extent = extents_FFcoordinates_signal) #Units of counts/mm^2*sec
-plt.plot(1e3*R*np.tan(theoretical_angle),0,'xw')
-plt.xlabel(' x [mm]')
-plt.ylabel(' y [mm]')
-plt.title('Single photo-detection probability, Far field')
-plt.colorbar()
+# theoretical_angle = np.arccos((Pump.k-PP_SLT.poling_period)/2/Signal.k)
+# theoretical_angle = np.arcsin(Signal.n*np.sin(theoretical_angle)/1)  #Snell's law
+#
+# plt.figure()
+# plt.imshow(np.real(P_ss *1e-6),extent = extents_FFcoordinates_signal) #Units of counts/mm^2*sec
+# plt.plot(1e3*R*np.tan(theoretical_angle),0,'xw')
+# plt.xlabel(' x [mm]')
+# plt.ylabel(' y [mm]')
+# plt.title('Single photo-detection probability, Far field')
+# plt.colorbar()
+# plt.show()
 
 #########################################################################
 # Compute the reduced representation of G2 via
@@ -223,38 +224,40 @@ plt.title(r'$G^{(2)}$ (coincidences)')
 plt.xlabel(r'$x_i$ [mm]')
 plt.ylabel(r'$x_s$ [mm]')
 plt.colorbar()
+plt.show()
 
-if DO_POLAR:
-# Polar coordiantes
-    #Need to trace over the r coordinate
-    #First find dr in the far-field, in meters
-    dr = 1e-3*(FFcoordinate_axis_Idler[1]-FFcoordinate_axis_Idler[0])
-    #Calculate theoretical ring radius for approximate Jacobian rdr 
-    r_th = R * np.tan(theoretical_angle) 
-    
-    #  Square and reduce P
-    Pis_abs_sq_reduced = (r_th*dr)**2*trace_it(G1_pol.ii,G1_pol.ss,1,3)
-    
-    # Square and reduce G1
-    G1_is_abs_sq_reduced = (r_th*dr)**2*trace_it(G1_pol.si_dagger,G1_pol.si,1,3) 
-    
-    # Square and reduce Q
-    Qis_abs_sq_reduced = (r_th*dr)**2*trace_it(Q_pol.si_dagger,Q_pol.si,1,3)
-    
-    # add coincidence window
-    tau =1e-9 #nanosec
-    
-    # Compute and plot reduced G2
-    G2_reduced = np.real(Pis_abs_sq_reduced+Qis_abs_sq_reduced+G1_is_abs_sq_reduced)*tau/( G1_Normalization(Idler.w) * G1_Normalization(Signal.w) )
-    
-    #plot
-    extents    = np.array([th[0], th[1], th[0], th[1]])
-    plt.figure()
-    plt.imshow(G2_reduced,extent =extents) 
-    plt.title(r'$G^{(2)}$ (coincidences)')
-    plt.xlabel(r'$\theta$ [rad]')
-    plt.ylabel(r'$\theta$ [rad]')
-    plt.colorbar()
+# if DO_POLAR:
+# # Polar coordiantes
+#     #Need to trace over the r coordinate
+#     #First find dr in the far-field, in meters
+#     dr = 1e-3*(FFcoordinate_axis_Idler[1]-FFcoordinate_axis_Idler[0])
+#     #Calculate theoretical ring radius for approximate Jacobian rdr
+#     r_th = R * np.tan(theoretical_angle)
+#
+#     #  Square and reduce P
+#     Pis_abs_sq_reduced = (r_th*dr)**2*trace_it(G1_pol.ii,G1_pol.ss,1,3)
+#
+#     # Square and reduce G1
+#     G1_is_abs_sq_reduced = (r_th*dr)**2*trace_it(G1_pol.si_dagger,G1_pol.si,1,3)
+#
+#     # Square and reduce Q
+#     Qis_abs_sq_reduced = (r_th*dr)**2*trace_it(Q_pol.si_dagger,Q_pol.si,1,3)
+#
+#     # add coincidence window
+#     tau =1e-9 #nanosec
+#
+#     # Compute and plot reduced G2
+#     G2_reduced = np.real(Pis_abs_sq_reduced+Qis_abs_sq_reduced+G1_is_abs_sq_reduced)*tau/( G1_Normalization(Idler.w) * G1_Normalization(Signal.w) )
+#
+#     #plot
+#     extents    = np.array([th[0], th[1], th[0], th[1]])
+#     plt.figure()
+#     plt.imshow(G2_reduced,extent =extents)
+#     plt.title(r'$G^{(2)}$ (coincidences)')
+#     plt.xlabel(r'$\theta$ [rad]')
+#     plt.ylabel(r'$\theta$ [rad]')
+#     plt.colorbar()
+#     plt.show()
 
 
 print(time.time() - start_time, "seconds") # to see how long it takes
