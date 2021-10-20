@@ -108,6 +108,10 @@ def projection_matrices_calc(a, b, c, N):
 
     return G1_ss, G1_ii, G1_si, G1_si_dagger, Q_si, Q_si_dagger
 
+# @jit
+def Pss_calc(a, N, batch_size):
+    G1 = (kron(np.conj(a), a).real.reshape(N ** 2, N ** 2))[::N + 1, ::N + 1] / batch_size
+    return lax.psum(G1, 'device')
 
 @jit
 def projection_matrix_calc(G1_ss, G1_ii, G1_si, G1_si_dagger, Q_si, Q_si_dagger):

@@ -182,8 +182,8 @@ class BaseTrainer(ABC):
         # seed vacuum samples for each gpu
         self.key, subkey = random.split(self.key)
         keys = random.split(subkey, self.n_devices)
-        observables = pmap(self.model.forward, axis_name='device')(stop_gradient(self.model_parameters), keys)
-        return observables
+        observables, G1 = pmap(self.model.forward, axis_name='device')(stop_gradient(self.model_parameters), keys)
+        return observables, G1
 
     def fit(self):
         self.model.learn_mode = True
@@ -322,7 +322,7 @@ class BaseTrainer(ABC):
                             crystal_coeffs_imag,
                             r_scale)
 
-        observables = self.model.forward(model_parameters, keys)
+        observables, G1 = self.model.forward(model_parameters, keys)
 
         (coincidence_rate, density_matrix, tomography_matrix) = observables
         if self.coincidence_rate_loss.observable_as_target:

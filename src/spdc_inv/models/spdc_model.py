@@ -1,12 +1,13 @@
 from abc import ABC
 import jax.random as random
 import jax.numpy as np
+from jax import lax
 
 from spdc_inv.models.utils import Field
 from spdc_inv.models.utils import crystal_prop, propagate
 from spdc_inv.utils.defaults import QUBIT
 from spdc_inv.utils.utils import DensMat
-from spdc_inv.training.utils import projection_matrix_calc, projection_matrices_calc, \
+from spdc_inv.training.utils import projection_matrix_calc, projection_matrices_calc, Pss_calc,\
     decompose, fix_power, get_qubit_density_matrix, get_qutrit_density_matrix
 
 Fourier = lambda A: (np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(A))))
@@ -115,6 +116,11 @@ class SPDCmodel(ABC):
                                self.DeltaZ
                                ) * np.exp(-1j * self.idler_f.k * self.DeltaZ)
 
+
+
+
+        G1 = Pss_calc(signal_out_back_prop, self.interaction.Nx, self.N)
+
         coincidence_rate_projections, tomography_matrix_projections = \
             self.get_1st_order_projections(
                 signal_out,
@@ -129,7 +135,7 @@ class SPDCmodel(ABC):
 
         observables = self.get_observables(coincidence_rate_projections, tomography_matrix_projections)
 
-        return observables
+        return observables, G1
 
     def get_1st_order_projections(
             self,

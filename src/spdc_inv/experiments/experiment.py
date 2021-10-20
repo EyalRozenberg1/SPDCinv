@@ -500,7 +500,7 @@ def run_experiment(
 
     else:
         start_time = time.time()
-        observables = trainer.inference()
+        observables, G1 = trainer.inference()
         inference_total_time = (time.time() - start_time)
         print("inference is done after: %s seconds" % inference_total_time)
 
@@ -508,6 +508,7 @@ def run_experiment(
             run_name,
             observable_vec,
             observables,
+            G1,
             projection_coincidence_rate,
             projection_tomography_matrix,
             Signal,

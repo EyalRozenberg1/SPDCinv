@@ -96,6 +96,7 @@ def save_results(
         run_name,
         observable_vec,
         observables,
+        G1,
         projection_coincidence_rate,
         projection_tomography_matrix,
         Signal,
@@ -111,14 +112,21 @@ def save_results(
     if observable_vec[COINCIDENCE_RATE]:
         coincidence_rate = coincidence_rate[0]
         coincidence_rate = coincidence_rate / np.sum(np.abs(coincidence_rate))
+
+        G1 = G1[0]
+        G1 = G1 / np.sum(np.abs(G1))
+        np.save(os.path.join(results_dir, 'G1.npy'), G1)
+
         np.save(os.path.join(results_dir, 'coincidence_rate.npy'), coincidence_rate)
         coincidence_rate_plots(
             results_dir,
             coincidence_rate,
+            G1,
             projection_coincidence_rate,
             Signal,
             Idler,
         )
+
 
     if observable_vec[DENSITY_MATRIX]:
         density_matrix = density_matrix[0]
@@ -146,6 +154,7 @@ def save_results(
 def coincidence_rate_plots(
         results_dir,
         coincidence_rate,
+        G1,
         projection_coincidence_rate,
         Signal,
         Idler,
@@ -174,6 +183,15 @@ def coincidence_rate_plots(
     plt.colorbar()
 
     plt.savefig(os.path.join(results_dir, 'coincidence_rate'))
+    plt.close()
+
+    plt.imshow(G1 / g1_ss_normalization)
+    plt.xlabel(' x [mm]')
+    plt.ylabel(' y [mm]')
+    plt.title('Single photo-detection probability, Far field')
+    plt.colorbar()
+
+    plt.savefig(os.path.join(results_dir, 'G1'))
     plt.close()
 
 
