@@ -504,6 +504,13 @@ def run_experiment(
         inference_total_time = (time.time() - start_time)
         print("inference is done after: %s seconds" % inference_total_time)
 
+        save_training_statistics(
+            logs_dir,
+            None,
+            interaction,
+            trainer.model_parameters,
+        )
+
         save_results(
             run_name,
             observable_vec,
@@ -551,7 +558,7 @@ if __name__ == "__main__":
         },
         'loss_weights': {
             COINCIDENCE_RATE: (1.,),
-            DENSITY_MATRIX: (1.,),
+            DENSITY_MATRIX: None,
             TOMOGRAPHY_MATRIX: None
         },
         'reg_observable': {
@@ -591,10 +598,10 @@ if __name__ == "__main__":
         'initial_pump_waist': 'waist_pump0',
         'pump_waists_path': None,
         'crystal_basis': 'LG',
-        'crystal_max_mode1': 1,
-        'crystal_max_mode2': 2,
+        'crystal_max_mode1': 10,
+        'crystal_max_mode2': 4,
         'initial_crystal_coefficient': 'custom',
-        'custom_crystal_coefficient': {REAL: {0: 0., 1: 0., 2: 1.}, IMAG: {0: 0., 1: 0., 2: 0.}},
+        'custom_crystal_coefficient': {REAL: {4: 1.}, IMAG: {0: 0., 1: 0., 2: 0.}},
         'crystal_coefficient_path': None,
         'initial_crystal_waist': 'r_scale0',
         'crystal_waists_path': None,
@@ -606,8 +613,8 @@ if __name__ == "__main__":
         'dx': 4e-6,
         'dy': 4e-6,
         'dz': 10e-6,
-        'maxX': 120e-6,
-        'maxY': 120e-6,
+        'maxX': 180e-6,
+        'maxY': 180e-6,
         'maxZ': 1e-3,
         'R': 0.1,
         'Temperature': 50,

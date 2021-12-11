@@ -18,3 +18,9 @@ results/
 logs/
 
 .DS_Store
+
+matlab/HGfigures/1.fig
+
+*.png
+
+*.fig
