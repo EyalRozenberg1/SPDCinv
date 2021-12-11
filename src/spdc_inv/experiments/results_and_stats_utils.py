@@ -15,7 +15,8 @@ def save_training_statistics(
         interaction,
         model_parameters,
 ):
-    loss_trn, best_loss = fit_results
+    if fit_results is not None:
+        loss_trn, best_loss = fit_results
 
     pump_coeffs_real, \
     pump_coeffs_imag, \
@@ -56,17 +57,18 @@ def save_training_statistics(
             )
         )
 
-    # print loss
-    plt.plot(loss_trn, 'r', label='training')
-    plt.ylabel('objective loss')
-    plt.xlabel('#epoch')
-    # plt.ylim(0.2, 1)
-    plt.axhline(y=best_loss, color='gray', linestyle='--')
-    plt.text(2, best_loss, f'best = {best_loss}', rotation=0, horizontalalignment='left',
-             verticalalignment='top', multialignment='center')
-    plt.legend()
-    plt.savefig(os.path.join(logs_dir, 'loss'))
-    plt.close()
+    if fit_results is not None:
+        # print loss
+        plt.plot(loss_trn, 'r', label='training')
+        plt.ylabel('objective loss')
+        plt.xlabel('#epoch')
+        # plt.ylim(0.2, 1)
+        plt.axhline(y=best_loss, color='gray', linestyle='--')
+        plt.text(2, best_loss, f'best = {best_loss}', rotation=0, horizontalalignment='left',
+                 verticalalignment='top', multialignment='center')
+        plt.legend()
+        plt.savefig(os.path.join(logs_dir, 'loss'))
+        plt.close()
 
     np.save(os.path.join(logs_dir, 'parameters_pump_real.npy'),
             pump_coeffs_real[0] if pump_coeffs_real is not None
