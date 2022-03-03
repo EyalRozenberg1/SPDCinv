@@ -1,7 +1,9 @@
 from abc import ABC
 from jax import numpy as np
 from typing import Tuple, Dict, Any, List, Union
-from spdc_inv.utils.utils import HermiteBank, LaguerreBank, TomographyBank
+from spdc_inv.utils.utils import (
+    HermiteBank, LaguerreBank, TomographyBankLG, TomographyBankHG
+)
 from spdc_inv.utils.defaults import QUBIT, QUTRIT
 from spdc_inv.utils.defaults import qubit_projection_n_state2, \
     qubit_tomography_dimensions, qutrit_projection_n_state2, qutrit_tomography_dimensions
@@ -30,6 +32,7 @@ class Projection_coincidence_rate(ABC):
             waist: float = None,
             wavelength:  float = None,
             tau: float = 1e-9,
+            SMF_waist: float = None,
 
     ):
         """
@@ -52,6 +55,7 @@ class Projection_coincidence_rate(ABC):
         waist: waists of the projection basis functions
         wavelength: wavelength for generating projection basis
         tau: coincidence window [nano sec]
+        SMF_waist: signal/idler beam radius at single mode fibre
         """
 
         self.tau = tau
@@ -84,6 +88,8 @@ class Projection_coincidence_rate(ABC):
 
         refractive_index = ctype(wavelength * 1e6, temperature, polarization)
         [x, y] = np.meshgrid(crystal_x, crystal_y)
+
+        self.SMF_waist = SMF_waist
 
         if calculate_observable:
             if projection_basis.lower() == 'lg':
@@ -168,8 +174,8 @@ class Projection_tomography_matrix(ABC):
         if wavelength is None:
             wavelength = signal_wavelength
 
-        assert projection_basis.lower() in ['lg'], 'The projection basis is LG ' \
-                                                   'basis functions only'
+        assert projection_basis.lower() in ['lg', 'hg'], 'The projection basis is LG or HG' \
+                                                         'basis functions only'
 
         assert max_mode1 == 1, 'for Tomography projections, max_mode1 must be 1'
         assert max_mode2 == 1, 'for Tomography projections, max_mode2 must be 1'
@@ -193,16 +199,28 @@ class Projection_tomography_matrix(ABC):
 
         refractive_index = ctype(wavelength * 1e6, temperature, polarization)
         [x, y] = np.meshgrid(crystal_x, crystal_y)
-
         if calculate_observable:
-            self.basis_arr, self.basis_str = \
-                TomographyBank(
-                    wavelength,
-                    refractive_index,
-                    self.waist,
-                    self.max_mode1,
-                    self.max_mode2,
-                    x, y, z,
-                    self.relative_phase,
-                    self.tomography_quantum_state
-                )
+            if self.projection_basis == 'lg':
+                self.basis_arr, self.basis_str = \
+                    TomographyBankLG(
+                        wavelength,
+                        refractive_index,
+                        self.waist,
+                        self.max_mode1,
+                        self.max_mode2,
+                        x, y, z,
+                        self.relative_phase,
+                        self.tomography_quantum_state
+                    )
+            else:
+                self.basis_arr, self.basis_str = \
+                    TomographyBankHG(
+                        wavelength,
+                        refractive_index,
+                        self.waist,
+                        self.max_mode1,
+                        self.max_mode2,
+                        x, y, z,
+                        self.relative_phase,
+                        self.tomography_quantum_state
+                    )

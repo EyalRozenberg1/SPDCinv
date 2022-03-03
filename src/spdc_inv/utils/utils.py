@@ -142,7 +142,7 @@ def LaguerreBank(
     return np.array(list(Laguerre_dict.values())), [*Laguerre_dict]
 
 
-def TomographyBank(
+def TomographyBankLG(
         lam,
         refractive_index,
         W0,
@@ -152,7 +152,7 @@ def TomographyBank(
         y,
         z=0,
         relative_phase: List[Union[Union[int, float], Any]] = None,
-        tomography_quantum_state: str = None
+        tomography_quantum_state: str = None,
 ):
     """
     generates a dictionary of basis function with projections into two orthogonal LG bases and mutually unbiased
@@ -198,6 +198,66 @@ def TomographyBank(
             for k in range(len(relative_phase)):
                 TOMO_dict[f'{LG_string[m]}+e^j{str(relative_phase[k]/np.pi)}π{LG_string[n]}'] = \
                     (1 / np.sqrt(2)) * (LG_modes[m] + np.exp(1j * relative_phase[k]) * LG_modes[n])
+
+    return np.array(list(TOMO_dict.values())), [*TOMO_dict]
+
+def TomographyBankHG(
+        lam,
+        refractive_index,
+        W0,
+        max_mode_x,
+        max_mode_y,
+        x,
+        y,
+        z=0,
+        relative_phase: List[Union[Union[int, float], Any]] = None,
+        tomography_quantum_state: str = None,
+):
+    """
+    generates a dictionary of basis function with projections into two orthogonal HG bases and mutually unbiased
+    bases (MUBs). The MUBs are constructed from superpositions of the two orthogonal HG bases.
+    according to: https://doi.org/10.1364/AOP.11.000067
+
+    Parameters
+    ----------
+    lam; wavelength
+    refractive_index: refractive index
+    W0: beam waist
+    max_mode_x: maximum projection mode 1st axis
+    max_mode_y: maximum projection mode 2nd axis
+    x: transverse points, x axis
+    y: transverse points, y axis
+    z: projection longitudinal position
+    relative_phase: The relative phase between the mutually unbiased bases (MUBs) states
+    tomography_quantum_state: the current quantum state we calculate it tomography matrix.
+                              currently we support: qubit
+
+    Returns
+    -------
+    dictionary of bases functions used for constructing the tomography matrix
+    """
+
+    TOMO_dict = \
+        HermiteBank(
+            lam,
+            refractive_index,
+            W0,
+            max_mode_x,
+            max_mode_y,
+            x, y, z,
+            get_dict=True)
+
+    if tomography_quantum_state is QUBIT:
+        del TOMO_dict['|HG00>']
+        del TOMO_dict['|HG11>']
+
+    HG_modes, HG_string = np.array(list(TOMO_dict.values())), [*TOMO_dict]
+
+    for m in range(len(TOMO_dict) - 1, -1, -1):
+        for n in range(m - 1, -1, -1):
+            for k in range(len(relative_phase)):
+                TOMO_dict[f'{HG_string[m]}+e^j{str(relative_phase[k]/np.pi)}π{HG_string[n]}'] = \
+                    (1 / np.sqrt(2)) * (HG_modes[m] + np.exp(1j * relative_phase[k]) * HG_modes[n])
 
     return np.array(list(TOMO_dict.values())), [*TOMO_dict]
 
@@ -785,15 +845,15 @@ class DensMat(ABC):
         if self.tomography_dimension == 2:
             mats = (
                 np.eye(2, dtype='complex64'),
-                (1 / np.sqrt(2)) * np.array([[0, 1], [1, 0]]),
-                (1 / np.sqrt(2)) * np.array([[0, -1j], [1j, 0]]),
+                np.array([[0, 1], [1, 0]]),
+                np.array([[0, -1j], [1j, 0]]),
                 np.array([[1, 0], [0, -1]])
             )
 
             vecs = (
                 np.array([1, 1, 0, 0, 0, 0]),
-                (1 / np.sqrt(2)) * np.array([0, 0, 1, -1, 0, 0]),
-                (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 1, -1]),
+                np.array([0, 0, 1, -1, 0, 0]),
+                np.array([0, 0, 0, 0, 1, -1]),
                 np.array([1, -1, 0, 0, 0, 0])
             )
 
@@ -812,14 +872,14 @@ class DensMat(ABC):
 
             vecs = (
                 np.array([1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-               np.array([1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-               (1 / np.sqrt(2)) * np.array([0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-               (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, 0, 0]),
-               (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0]),
-               (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0]),
-               (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0]),
-               (1 / np.sqrt(2)) * np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1]),
-               (np.sqrt(3) / 3) * np.array([1, 1, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+                np.array([1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                np.array([0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
+                np.array([0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0, 0, 0]),
+                np.array([0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0, 0, 0]),
+                np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0, 0, 0]),
+                np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1, 0, 0]),
+                np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, -1]),
+                (np.sqrt(3) / 3) * np.array([1, 1, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
             )
 
         counter = 0

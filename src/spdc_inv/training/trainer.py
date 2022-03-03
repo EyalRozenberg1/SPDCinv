@@ -4,7 +4,7 @@ import numpy as onp
 
 from abc import ABC
 from typing import Dict, Optional, Tuple, Any
-from jax import vmap, pmap
+from jax import pmap
 from jax import value_and_grad
 from jax import lax
 from functools import partial
@@ -41,6 +41,7 @@ class BaseTrainer(ABC):
             signal,
             idler,
             observable_vec: Optional[Tuple[Dict[Any, bool]]],
+            coupling_inefficiencies: bool,
     ):
 
         self.key                 = key
@@ -56,7 +57,7 @@ class BaseTrainer(ABC):
         self.Nx     = interaction.Nx
         self.Ny     = interaction.Ny
         self.DeltaZ = - interaction.maxZ / 2  # DeltaZ: longitudinal middle of the crystal (with negative sign).
-                                              # To propagate generated fields back to the middle of the crystal
+        # To propagate generated fields back to the middle of the crystal
 
         self.projection_coincidence_rate  = projection_coincidence_rate
         self.projection_tomography_matrix = projection_tomography_matrix
@@ -77,6 +78,8 @@ class BaseTrainer(ABC):
         self.target_coincidence_rate = None
         self.target_density_matrix = None
         self.target_tomography_matrix = None
+
+        self.coupling_inefficiencies = coupling_inefficiencies
 
         # Initialize pump and crystal coefficients
         pump_coeffs_real, \
@@ -113,12 +116,12 @@ class BaseTrainer(ABC):
 
 
         self.model_parameters = pmap(lambda x: (
-                                                self.pump_coeffs_real,
-                                                self.pump_coeffs_imag,
-                                                self.waist_pump,
-                                                self.crystal_coeffs_real,
-                                                self.crystal_coeffs_imag,
-                                                self.r_scale
+            self.pump_coeffs_real,
+            self.pump_coeffs_imag,
+            self.waist_pump,
+            self.crystal_coeffs_real,
+            self.crystal_coeffs_imag,
+            self.r_scale
         ))(np.arange(self.n_devices))
 
         print(f"Interaction length [m]: {interaction.maxZ} \n")
@@ -172,7 +175,9 @@ class BaseTrainer(ABC):
                                DeltaZ=self.DeltaZ,
                                coincidence_rate_observable=self.coincidence_rate_observable,
                                density_matrix_observable=self.density_matrix_observable,
-                               tomography_matrix_observable=self.tomography_matrix_observable,)
+                               tomography_matrix_observable=self.tomography_matrix_observable,
+                               coupling_inefficiencies=self.coupling_inefficiencies
+                               )
 
     def inference(self):
         self.model.learn_mode  = False

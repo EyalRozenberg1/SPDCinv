@@ -4,6 +4,7 @@ from jax import lax
 from jax import jit
 from spdc_inv.utils.defaults import qubit_projection_n_state2, \
     qubit_tomography_dimensions, qutrit_projection_n_state2, qutrit_tomography_dimensions
+import math
 
 
 @jit
@@ -129,6 +130,92 @@ def projection_matrix_calc(G1_ss, G1_ii, G1_si, G1_si_dagger, Q_si, Q_si_dagger)
             ).real
 
 
+# for coupling inefficiencies
+@jit
+def coupling_inefficiency_calc_G2(
+        lam,
+        SMF_waist,
+        max_mode_l: int = 4,
+        focal_length: float = 4.6e-3,
+        SMF_mode_diam: float = 2.5e-6,
+):
+    waist = 46.07 * SMF_waist
+    a_0 = np.sqrt(2) * lam * focal_length / (np.pi * waist)
+    A = 2 / (1 + (SMF_mode_diam ** 2 / a_0 ** 2))
+    B = 2 / (1 + (a_0 ** 2 / SMF_mode_diam ** 2))
+    inef_coeff = np.zeros([2 * max_mode_l + 1, 2 * max_mode_l + 1])
+
+    for l_i in range(-max_mode_l, max_mode_l + 1):
+        inef_coeff_i = (math.factorial(abs(l_i)) ** 2) * (A ** (2 * abs(l_i) + 1) * B) / (math.factorial(2 * abs(l_i)))
+        for l_s in range(-max_mode_l, max_mode_l + 1):
+            inef_coeff_s = (math.factorial(abs(l_s)) ** 2) * (A ** (2 * abs(l_s) + 1) * B) / (
+                math.factorial(2 * abs(l_s)))
+            inef_coeff = inef_coeff.at[l_i + max_mode_l, l_s + max_mode_l].set((inef_coeff_i + inef_coeff_s))
+
+    return inef_coeff.reshape(1, (2 * max_mode_l + 1) ** 2)
+
+
+@jit
+def coupling_inefficiency_calc_tomo(
+        lam,
+        SMF_waist,
+        focal_length: float = 4.6e-3,
+        SMF_mode_diam: float = 2.5e-6,
+):
+    waist = 46.07 * SMF_waist
+    a_0 = np.sqrt(2) * lam * focal_length / (np.pi * waist)
+    A = 2 / (1 + (SMF_mode_diam ** 2 / a_0 ** 2))
+    B = 2 / (1 + (a_0 ** 2 / SMF_mode_diam ** 2))
+    inef_coeff = np.zeros([qutrit_projection_n_state2, qutrit_projection_n_state2])
+
+    for base_1 in range(qutrit_projection_n_state2):
+        # azimuthal modes l = {-1, 0, 1} defined according to order of MUBs
+        if base_1 == 0 or base_1 == 2:
+            l_1 = 1
+            inef_coeff_i = (math.factorial(abs(l_1)) ** 2) * (A ** (2 * abs(l_1) + 1) * B) / (
+                math.factorial(2 * abs(l_1)))
+        elif base_1 == 1:
+            l_1 = 0
+            inef_coeff_i = (math.factorial(abs(l_1)) ** 2) * (A ** (2 * abs(l_1) + 1) * B) / (
+                math.factorial(2 * abs(l_1)))
+
+        else:
+            if base_1 < 7 or base_1 > 10:
+                l_1, l_2 = 1, 0
+            else:
+                l_1, l_2 = 1, 1
+            inef_coeff_1 = (math.factorial(abs(l_1)) ** 2) * (A ** (2 * abs(l_1) + 1) * B) / (
+                math.factorial(2 * abs(l_1)))
+            inef_coeff_2 = (math.factorial(abs(l_2)) ** 2) * (A ** (2 * abs(l_2) + 1) * B) / (
+                math.factorial(2 * abs(l_2)))
+            inef_coeff_i = 0.5 * (inef_coeff_1 + inef_coeff_2)
+
+        for base_2 in range(qutrit_projection_n_state2):
+            if base_2 == 0 or base_2 == 2:
+                l_1 = 1
+                inef_coeff_s = (math.factorial(abs(l_1)) ** 2) * (A ** (2 * abs(l_1) + 1) * B) / (
+                    math.factorial(2 * abs(l_1)))
+            elif base_2 == 1:
+                l_1 = 0
+                inef_coeff_s = (math.factorial(abs(l_1)) ** 2) * (A ** (2 * abs(l_1) + 1) * B) / (
+                    math.factorial(2 * abs(l_1)))
+
+            else:
+                if base_2 < 7 or base_2 > 10:
+                    l_1, l_2 = 1, 0
+                else:
+                    l_1, l_2 = 1, 1
+                inef_coeff_1 = (math.factorial(abs(l_1)) ** 2) * (A ** (2 * abs(l_1) + 1) * B) / (
+                    math.factorial(2 * abs(l_1)))
+                inef_coeff_2 = (math.factorial(abs(l_2)) ** 2) * (A ** (2 * abs(l_2) + 1) * B) / (
+                    math.factorial(2 * abs(l_2)))
+                inef_coeff_s = 0.5 * (inef_coeff_1 + inef_coeff_2)
+
+            inef_coeff = inef_coeff.at[base_1, base_2].set((inef_coeff_i + inef_coeff_s))
+
+    return inef_coeff.reshape(1, qutrit_projection_n_state2 ** 2)
+
+
 @jit
 def get_qubit_density_matrix(
         tomography_matrix,
@@ -144,6 +231,7 @@ def get_qubit_density_matrix(
     dens_mat = dens_mat.sum(0)
 
     return dens_mat
+
 
 @jit
 def get_qutrit_density_matrix(

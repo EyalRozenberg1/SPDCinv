@@ -6,8 +6,11 @@ from spdc_inv.models.utils import Field
 from spdc_inv.models.utils import crystal_prop, propagate
 from spdc_inv.utils.defaults import QUBIT
 from spdc_inv.utils.utils import DensMat
-from spdc_inv.training.utils import projection_matrix_calc, projection_matrices_calc, \
-    decompose, fix_power, get_qubit_density_matrix, get_qutrit_density_matrix
+from spdc_inv.training.utils import (
+    projection_matrix_calc, projection_matrices_calc,
+    decompose, fix_power, get_qubit_density_matrix, get_qutrit_density_matrix,
+    coupling_inefficiency_calc_G2, coupling_inefficiency_calc_tomo,
+)
 
 
 class SPDCmodel(ABC):
@@ -30,6 +33,7 @@ class SPDCmodel(ABC):
             coincidence_rate_observable,
             density_matrix_observable,
             tomography_matrix_observable,
+            coupling_inefficiencies: bool = False,
     ):
 
         self.pump = pump
@@ -45,6 +49,9 @@ class SPDCmodel(ABC):
         self.coincidence_rate_observable = coincidence_rate_observable
         self.density_matrix_observable = density_matrix_observable
         self.tomography_matrix_observable = tomography_matrix_observable
+
+        self.coupling_inefficiencies = coupling_inefficiencies
+
         self.N = None
         self.N_device = None
         self.learn_mode = None
@@ -94,9 +101,9 @@ class SPDCmodel(ABC):
 
         # Propagate generated fields back to the middle of the crystal
         signal_out_back_prop = propagate(signal_out,
-                               self.interaction.x,
-                               self.interaction.y,
-                               self.signal_f.k,
+                                         self.interaction.x,
+                                         self.interaction.y,
+                                         self.signal_f.k,
                                self.DeltaZ
                                ) * np.exp(-1j * self.signal_f.k * self.DeltaZ)
 
@@ -111,8 +118,8 @@ class SPDCmodel(ABC):
                                self.interaction.x,
                                self.interaction.y,
                                self.idler_f.k,
-                               self.DeltaZ
-                               ) * np.exp(-1j * self.idler_f.k * self.DeltaZ)
+                                        self.DeltaZ
+                                        ) * np.exp(-1j * self.idler_f.k * self.DeltaZ)
 
         coincidence_rate_projections, tomography_matrix_projections = \
             self.get_1st_order_projections(
@@ -235,7 +242,7 @@ class SPDCmodel(ABC):
             idler_vac_decompose,
             self.N
         )
-        
+
         return G1_ss, G1_ii, G1_si, G1_si_dagger, Q_si, Q_si_dagger
 
     def decompose(
@@ -297,6 +304,16 @@ class SPDCmodel(ABC):
                 self.projection_coincidence_rate.projection_n_modes1 ** 2,
                 self.projection_coincidence_rate.projection_n_modes2 ** 2
             )
+            ## coupling inefficiences
+            if self.coupling_inefficiencies:
+                assert self.projection_coincidence_rate.projection_basis.lower() == 'lg', \
+                    f'Only implemented for Laguerre-Gauss bases. ' \
+                    f'We received {self.projection_coincidence_rate.projection_basis}'
+                coincidence_rate = np.multiply(coupling_inefficiency_calc_G2(
+                    self.signal.lam,
+                    self.projection_coincidence_rate.SMF_waist,
+                ), coincidence_rate
+                )
 
         if self.tomography_matrix_observable or self.density_matrix_observable:
             tomography_matrix = projection_matrix_calc(
@@ -304,6 +321,15 @@ class SPDCmodel(ABC):
             ).reshape(
                 self.projection_tomography_matrix.projection_n_state1 ** 2,
                 self.projection_tomography_matrix.projection_n_state2 ** 2)
+            if self.coupling_inefficiencies:
+                if self.projection_tomography_matrix.tomography_quantum_state is not QUBIT:
+                    # in the case of qubit tomography, inefficiency factor is same for all modes
+                    # in the tomography matrix
+                    tomography_matrix = np.multiply(coupling_inefficiency_calc_tomo(
+                        self.signal.lam,
+                        self.projection_tomography_matrix.SMF_waist,
+                    ), tomography_matrix
+                    )
 
             if self.density_matrix_observable:
                 densmat = DensMat(

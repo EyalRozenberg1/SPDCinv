@@ -27,12 +27,14 @@ def run_experiment(
         N_inference: int = 1000,
         target: str = 'qutrit',
         observable_vec: Tuple[Dict[Any, bool]] = None,
+        coupling_inefficiencies: bool = False,
         loss_arr: Tuple[Dict[Any, Optional[Tuple[str, str]]]] = None,
         loss_weights: Tuple[Dict[Any, Optional[Tuple[float, float]]]] = None,
         reg_observable: Tuple[Dict[Any, Optional[Tuple[str, str]]]] = None,
         reg_observable_w: Tuple[Dict[Any, Optional[Tuple[float, float]]]] = None,
         reg_observable_elements: Tuple[Dict[Any, Optional[Tuple[List[int], List[int]]]]] = None,
         tau: float = 1e-9,
+        SMF_waist: float = 2.18e-6,
         l2_reg: float = 1e-5,
         optimizer: str = 'adam',
         exp_decay_lr: bool = True,
@@ -239,6 +241,7 @@ def run_experiment(
    tomography_quantum_state: the current quantum state we calculate it tomography matrix.
                                currently we support: qubit/qutrit
     tau: coincidence window [nano sec]
+    SMF_waist: signal/idler beam radius at single mode fibre
     -------
 
     """
@@ -363,7 +366,8 @@ def run_experiment(
         max_mode2=coincidence_projection_max_mode2,
         waist=coincidence_projection_waist,
         wavelength=coincidence_projection_wavelength,
-        tau=tau
+        tau=tau,
+        SMF_waist=SMF_waist,
     )
 
     projection_tomography_matrix = Projection_tomography_matrix(
@@ -424,6 +428,7 @@ def run_experiment(
         signal=Signal,
         idler=Idler,
         observable_vec=observable_vec,
+        coupling_inefficiencies=coupling_inefficiencies
     )
 
     training_total_time = None
@@ -543,6 +548,7 @@ if __name__ == "__main__":
         'N_train':  1000,
         'N_inference':  4000,
         'target': 'qutrit',
+        'coupling_inefficiencies': True,
         'observable_vec': {
             COINCIDENCE_RATE: True,
             DENSITY_MATRIX: False,
@@ -644,6 +650,7 @@ if __name__ == "__main__":
         'tomography_relative_phase': [0, onp.pi, 3 * (onp.pi / 2), onp.pi / 2],
         'tomography_quantum_state': 'qutrit',
         'tau': 1e-9,
+        'SMF_waist': 2.18e-6,
     }
 
     run_experiment(
