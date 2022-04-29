@@ -1,6 +1,6 @@
 This repo contains the official implementation of the paper:
 
-# SPDCinv: Inverse Quantum-Optical Design of High-Dimensional Qudits
+# Inverse Design of Spontaneous Parametric Down Conversion for Generation of High-Dimensional Qudits
 ![illustration](illustration.png)
 
 ## about
