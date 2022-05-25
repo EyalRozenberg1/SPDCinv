@@ -4,7 +4,7 @@ This repo contains the official implementation of the paper:
 ![illustration](illustration.png)
 
 ## about
-(**If you use the code, please _cite our paper_.**)
+(**If you use the code, please _cite our papers_.**)
 We have introduced an algorithm for solving the inverse design problem of generating structured and entangled photon pairs in quantum optics, using tailored nonlinear interactions in the SPDC process. The *SPDCinv* algorithm extracts the optimal physical parameters which yield a desired quantum state or correlations between structured photon-pairs, that can then be used in future experiments. To ensure convergence to  realizable results and to improve the predictive accuracy, our algorithm obeyed physical constraints through the integration of the time-unfolded propagation dynamics governing the interaction of the SPDC Hamiltonian.
 
 ### in this version
