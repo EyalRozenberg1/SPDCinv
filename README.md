@@ -17,9 +17,23 @@ This work can readily be extended to the spectral-temporal domain, by allowing n
 Data underlying the results presented in this paper are available at `SPDCinv/Data availability/`.
 
 ## running the code
-To understand and determine the variables of interaction and learning hyperparameters, see `src/spdc_inv/experiments/experiment.py` and read the documentation there (we will go into more detail here soon.)
+To understand and determine the variables of interaction and learning hyperparameters, see `src/spdc_inv/experiments/experiment.py` and read the documentation there.
 
 Before you run the code, please run the following line from the bash: 
 `export PYTHONPATH="${PYTHONPATH}:/home/jupyter/src"`
 Later, run experiment.py by: 
 `python src/spdc_inv/experiments/experiment.py`
+
+## Giving Credit
+If you use this code in your work, please cite the associated papers.
+```
+@INPROCEEDINGS{9571469,
+  author={Rozenberg, Eyal and Karnieli, Aviv and Yesharim, Ofir and Trajtenberg-Mills, Sivan and Freedman, Daniel and Bronstein, Alex M. and Arie, Ady},
+  booktitle={2021 Conference on Lasers and Electro-Optics (CLEO)}, 
+  title={Inverse Design of Quantum Holograms in Three-Dimensional Nonlinear Photonic Crystals}, 
+  year={2021},
+  volume={},
+  number={},
+  pages={1-2},
+  doi={}}
+```
