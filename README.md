@@ -26,14 +26,37 @@ Later, run experiment.py by:
 
 ## Giving Credit
 If you use this code in your work, please cite the associated papers.
+
 ```
-@INPROCEEDINGS{9571469,
-  author={Rozenberg, Eyal and Karnieli, Aviv and Yesharim, Ofir and Trajtenberg-Mills, Sivan and Freedman, Daniel and Bronstein, Alex M. and Arie, Ady},
-  booktitle={2021 Conference on Lasers and Electro-Optics (CLEO)}, 
-  title={Inverse Design of Quantum Holograms in Three-Dimensional Nonlinear Photonic Crystals}, 
-  year={2021},
-  volume={},
-  number={},
-  pages={1-2},
-  doi={}}
+@article{Rozenberg:22,
+  author = {Eyal Rozenberg and Aviv Karnieli and Ofir Yesharim and Joshua Foley-Comer and Sivan Trajtenberg-Mills and Daniel Freedman and Alex M. Bronstein and Ady Arie},
+  journal = {Optica},
+  keywords = {Computation methods; Four wave mixing; Nonlinear photonic crystals; Quantum information processing; Quantum key distribution; Quantum optics},
+  number = {6},
+  pages = {602--615},
+  publisher = {Optica Publishing Group},
+  title = {Inverse design of spontaneous parametric downconversion for generation of high-dimensional qudits},
+  volume = {9},
+  month = {Jun},
+  year = {2022},
+  url = {http://opg.optica.org/optica/abstract.cfm?URI=optica-9-6-602},
+  doi = {10.1364/OPTICA.451115},
+  abstract = {Spontaneous parametric downconversion (SPDC) in quantum optics is an invaluable resource for the realization of high-dimensional qudits with spatial modes of light. One of the main open challenges is how to directly generate a desirable qudit state in the SPDC process. This problem can be addressed through advanced computational learning methods; however, due to difficulties in modeling the SPDC process by a fully differentiable algorithm, progress has been limited. Here, we overcome these limitations and introduce a physically constrained and differentiable model, validated against experimental results for shaped pump beams and structured crystals, capable of learning the relevant interaction parameters in the process. We avoid any restrictions induced by the stochastic nature of our physical model and integrate the dynamic equations governing the evolution under the SPDC Hamiltonian. We solve the inverse problem of designing a nonlinear quantum optical system that achieves the desired quantum state of downconverted photon pairs. The desired states are defined using either the second-order correlations between different spatial modes or by specifying the required density matrix. By learning nonlinear photonic crystal structures as well as different pump shapes, we successfully show how to generate maximally entangled states. Furthermore, we simulate all-optical coherent control over the generated quantum state by actively changing the profile of the pump beam. Our work can be useful for applications such as novel designs of high-dimensional quantum key distribution and quantum information processing protocols. In addition, our method can be readily applied for controlling other degrees of freedom of light in the SPDC process, such as spectral and temporal properties, and may even be used in condensed-matter systems having a similar interaction Hamiltonian.},
+}
+```
+
+```
+@inproceedings{Rozenberg:21,
+  author = {Eyal Rozenberg and Aviv Karnieli and Ofir Yesharim and Sivan Trajtenberg-Mills and Daniel Freedman and Alex M. Bronstein and Ady Arie},
+  booktitle = {Conference on Lasers and Electro-Optics},
+  journal = {Conference on Lasers and Electro-Optics},
+  keywords = {Light matter interactions; Nonlinear optical crystals; Nonlinear photonic crystals; Photonic crystals; Quantum communications; Quantum optics},
+  pages = {FM1N.7},
+  publisher = {Optica Publishing Group},
+  title = {Inverse Design of Quantum Holograms in Three-Dimensional Nonlinear Photonic Crystals},
+  year = {2021},
+  url = {http://opg.optica.org/abstract.cfm?URI=CLEO_QELS-2021-FM1N.7},
+  doi = {10.1364/CLEO_QELS.2021.FM1N.7},
+  abstract = {We introduce a systematic approach for designing 3D nonlinear photonic crystals and pump beams for generating desired quantum correlations between structured photon-pairs. Our model is fully differentiable, allowing accurate and efficient learning and discovery of novel designs.},
+}
 ```
