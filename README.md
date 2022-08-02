@@ -1,7 +1,7 @@
 This repo contains the official implementation of the paper:
 
 # Inverse Design of Spontaneous Parametric Down Conversion for Generation of High-Dimensional Qudits
-![illustration](illustration.png)
+![illustration](Optica.jpg)
 
 ## about
 (**If you use the code, please _cite our papers_.**)
